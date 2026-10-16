@@ -9,6 +9,11 @@ export const routes: Routes = [
     loadComponent: () => import('./features/shell/shell').then((m) => m.Shell),
     children: [
       { path: 'mese', loadComponent: () => import('./features/month/month').then((m) => m.Month) },
+      {
+        path: 'movimenti',
+        loadComponent: () => import('./features/transactions/transactions').then((m) => m.Transactions),
+      },
+      { path: 'altro', loadComponent: () => import('./features/settings/settings').then((m) => m.Settings) },
       { path: '', pathMatch: 'full', redirectTo: 'mese' },
     ],
   },

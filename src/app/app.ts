@@ -11,6 +11,8 @@ import { filter } from 'rxjs';
 })
 export class App {
   constructor() {
+    // Chiede a iOS di non cancellare i dati locali (coda offline) per inattività, dove supportato.
+    void navigator.storage?.persist?.();
     const snackBar = inject(MatSnackBar);
     inject(SwUpdate)
       .versionUpdates.pipe(filter((event) => event.type === 'VERSION_READY'))

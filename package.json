@@ -6,7 +6,8 @@
     "start": "ng serve",
     "build": "ng build",
     "watch": "ng build --watch --configuration development",
-    "test": "ng test"
+    "test": "ng test",
+    "db:types": "supabase gen types typescript --local > src/app/core/database.types.ts"
   },
   "private": true,
   "packageManager": "npm@9.1.2",

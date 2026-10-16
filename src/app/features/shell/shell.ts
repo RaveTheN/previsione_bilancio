@@ -1,6 +1,7 @@
 import { Component, inject } from '@angular/core';
-import { Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
-import { Auth } from '../../core/auth';
+import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
+import { Sync } from '../../core/sync';
+import { QuickAddLauncher } from '../quick-add/quick-add';
 
 // Tab bar in basso su schermo stretto, barra laterale da 840 px in su.
 @Component({
@@ -16,16 +17,35 @@ import { Auth } from '../../core/auth';
         </svg>
         <span>Mese</span>
       </a>
-      <button type="button" (click)="signOut()">
+      <a routerLink="/movimenti" routerLinkActive="active">
         <svg viewBox="0 -960 960 960" aria-hidden="true">
           <path
-            d="M200-120q-33 0-56.5-23.5T120-200v-560q0-33 23.5-56.5T200-840h280v80H200v560h280v80H200Zm440-160-55-58 102-102H360v-80h327L585-622l55-58 200 200-200 200Z"
+            d="M280-600v-80h560v80H280Zm0 160v-80h560v80H280Zm0 160v-80h560v80H280ZM160-600q-17 0-28.5-11.5T120-640q0-17 11.5-28.5T160-680q17 0 28.5 11.5T200-640q0 17-11.5 28.5T160-600Zm0 160q-17 0-28.5-11.5T120-480q0-17 11.5-28.5T160-520q17 0 28.5 11.5T200-480q0 17-11.5 28.5T160-440Zm0 160q-17 0-28.5-11.5T120-320q0-17 11.5-28.5T160-360q17 0 28.5 11.5T200-320q0 17-11.5 28.5T160-280Z"
           />
         </svg>
-        <span>Esci</span>
+        <span>Movimenti</span>
+      </a>
+      <button type="button" class="add" aria-label="Nuovo movimento" (click)="quickAdd.open()">
+        <svg viewBox="0 -960 960 960" aria-hidden="true"><path d="M440-440H200v-80h240v-240h80v240h240v80H520v240h-80v-240Z" /></svg>
       </button>
+      <a routerLink="/altro" routerLinkActive="active">
+        <svg viewBox="0 -960 960 960" aria-hidden="true">
+          <path
+            d="M240-400q-33 0-56.5-23.5T160-480q0-33 23.5-56.5T240-560q33 0 56.5 23.5T320-480q0 33-23.5 56.5T240-400Zm240 0q-33 0-56.5-23.5T400-480q0-33 23.5-56.5T480-560q33 0 56.5 23.5T560-480q0 33-23.5 56.5T480-400Zm240 0q-33 0-56.5-23.5T640-480q0-33 23.5-56.5T720-560q33 0 56.5 23.5T800-480q0 33-23.5 56.5T720-400Z"
+          />
+        </svg>
+        <span>Altro</span>
+        @if (sync.ops().length) {
+          <span class="badge" [attr.aria-label]="sync.ops().length + ' in attesa'">{{ sync.ops().length }}</span>
+        }
+      </a>
     </nav>
-    <main><router-outlet /></main>
+    <main>
+      @if (sync.error()) {
+        <a class="banner" role="alert" routerLink="/altro">Sincronizzazione bloccata: tocca per i dettagli</a>
+      }
+      <router-outlet />
+    </main>
   `,
   styles: `
     :host {
@@ -34,19 +54,29 @@ import { Auth } from '../../core/auth';
       min-height: 100dvh;
     }
     main {
-      padding: calc(16px + env(safe-area-inset-top)) 16px 16px;
+      display: grid;
+      align-content: start;
+      gap: 12px;
+      width: 100%;
+      max-width: 720px;
+      margin: 0 auto;
+      box-sizing: border-box;
+      padding: calc(12px + env(safe-area-inset-top)) 16px 24px;
     }
     nav {
       order: 2;
       position: sticky;
       bottom: 0;
+      z-index: 10;
       display: flex;
       justify-content: space-around;
+      align-items: center;
       padding-bottom: env(safe-area-inset-bottom);
       background: var(--mat-sys-surface-container);
     }
     a,
     button {
+      position: relative;
       display: grid;
       justify-items: center;
       gap: 2px;
@@ -63,10 +93,38 @@ import { Auth } from '../../core/auth';
     .active {
       color: var(--mat-sys-primary);
     }
+    .add {
+      place-items: center;
+      width: 56px;
+      min-width: 56px;
+      height: 56px;
+      padding: 0;
+      border-radius: 16px;
+      background: var(--mat-sys-primary-container);
+      color: var(--mat-sys-on-primary-container);
+    }
     svg {
       width: 24px;
       height: 24px;
       fill: currentColor;
+    }
+    .badge {
+      position: absolute;
+      top: 2px;
+      right: 10px;
+      min-width: 18px;
+      padding: 0 4px;
+      border-radius: 9px;
+      background: var(--mat-sys-error);
+      color: var(--mat-sys-on-error);
+      font: var(--mat-sys-label-small);
+    }
+    .banner {
+      display: block;
+      padding: 12px;
+      border-radius: 12px;
+      background: var(--mat-sys-error-container);
+      color: var(--mat-sys-on-error-container);
     }
     @media (min-width: 840px) {
       :host {
@@ -86,11 +144,6 @@ import { Auth } from '../../core/auth';
   `,
 })
 export class Shell {
-  private readonly auth = inject(Auth);
-  private readonly router = inject(Router);
-
-  async signOut(): Promise<void> {
-    await this.auth.signOut();
-    await this.router.navigateByUrl('/accesso');
-  }
+  protected readonly quickAdd = inject(QuickAddLauncher);
+  protected readonly sync = inject(Sync);
 }
