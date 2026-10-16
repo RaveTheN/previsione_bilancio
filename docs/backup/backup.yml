@@ -1,0 +1,56 @@
+# Da copiare in .github/workflows/backup.yml del repo PRIVATO "bilancio-backup".
+# Richiede: secret SUPABASE_DB_URL (Session pooler) e variabile AGE_PUBLIC_KEY.
+name: Backup notturno
+
+on:
+  schedule:
+    - cron: '0 1 * * *' # 03:00 in Italia con l'ora legale, 02:00 con quella solare
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: supabase/setup-cli@v3
+        with:
+          version: latest
+
+      - name: Dump (procedura ufficiale Supabase)
+        env:
+          DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          supabase db dump --db-url "$DB_URL" -f roles.sql --role-only
+          supabase db dump --db-url "$DB_URL" -f schema.sql
+          supabase db dump --db-url "$DB_URL" -f data.sql --use-copy --data-only -x "storage.buckets_vectors" -x "storage.vector_indexes"
+          # La storia delle migrazioni esiste solo dopo il primo `supabase db push`.
+          if psql "$DB_URL" -tAc "select 1 from pg_namespace where nspname = 'supabase_migrations'" | grep -q 1; then
+            supabase db dump --db-url "$DB_URL" -f history_schema.sql --schema supabase_migrations
+            supabase db dump --db-url "$DB_URL" -f history_data.sql --use-copy --data-only --schema supabase_migrations
+          fi
+
+      - name: Cifra prima del commit
+        env:
+          AGE_PUBLIC_KEY: ${{ vars.AGE_PUBLIC_KEY }}
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq age
+          tar czf - ./*.sql | age -r "$AGE_PUBLIC_KEY" -o backup.tar.gz.age
+          rm -f ./*.sql
+
+      # Prima il commit: se l'heartbeat fallisce, il backup è già salvato.
+      - name: Commit
+        run: |
+          git config user.name "bilancio-backup"
+          git config user.email "bilancio-backup@users.noreply.github.com"
+          git add backup.tar.gz.age
+          git commit -m "Backup $(date -u +%F)" || echo "Nessuna modifica"
+          git push
+
+      - name: Heartbeat contro la pausa del progetto Free
+        env:
+          DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: psql "$DB_URL" -c "insert into private.heartbeat default values"

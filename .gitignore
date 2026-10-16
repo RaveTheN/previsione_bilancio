@@ -1,0 +1,32 @@
+# Dati personali: mai nel repo pubblico
+*.xlsx
+*.xls
+*.csv
+PLAN.md
+contesto-*.md
+CLAUDE.md
+tools/import/out/
+tools/import/mapping.json
+.env*
+
+# Dipendenze e build
+node_modules/
+dist/
+.angular/
+coverage/
+out-tsc/
+tmp/
+npm-debug.log
+__pycache__/
+*.tsbuildinfo
+
+# Supabase locale
+supabase/.branches/
+supabase/.temp/
+
+# Editor e sistema
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
