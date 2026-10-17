@@ -1,4 +1,4 @@
-import { Component, inject } from '@angular/core';
+import { Component, DestroyRef, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
@@ -41,6 +41,11 @@ async function clearDataCaches(): Promise<void> {
       }
     </section>
 
+    @if (!online()) {
+      <p class="warn" role="status">Sei offline: categorie e conti si modificano solo con la connessione.</p>
+    }
+
+    <fieldset [disabled]="!online()">
     <section>
       <h2>Categorie</h2>
       @for (kind of kinds; track kind.value) {
@@ -102,15 +107,23 @@ async function clearDataCaches(): Promise<void> {
         <button mat-stroked-button type="submit" [disabled]="!newAccount.trim()">Aggiungi</button>
       </form>
     </section>
+    </fieldset>
 
     <section>
       <button mat-stroked-button type="button" (click)="signOut()">Esci</button>
     </section>
   `,
   styles: `
-    :host {
+    :host,
+    fieldset {
       display: grid;
       gap: 24px;
+    }
+    fieldset {
+      min-width: 0;
+      margin: 0;
+      padding: 0;
+      border: 0;
     }
     h1,
     h2,
@@ -206,6 +219,19 @@ export class Settings {
   protected newKind: Category['kind'] = 'expense';
   protected newAccount = '';
 
+  /** Le impostazioni si salvano solo online: la coda offline copre i movimenti. */
+  protected readonly online = signal(navigator.onLine);
+
+  constructor() {
+    const update = () => this.online.set(navigator.onLine);
+    window.addEventListener('online', update);
+    window.addEventListener('offline', update);
+    inject(DestroyRef).onDestroy(() => {
+      window.removeEventListener('online', update);
+      window.removeEventListener('offline', update);
+    });
+  }
+
   protected byKind(kind: string): Category[] {
     return this.ledger.categories().filter((c) => c.kind === kind);
   }
@@ -223,8 +249,7 @@ export class Settings {
   }
 
   protected async update(table: 'categories' | 'accounts', id: string, patch: Record<string, unknown>): Promise<void> {
-    const { error } = await supabase.from(table).update(patch as never).eq('id', id);
-    this.done(error, 'Modifica non salvata');
+    this.done(await supabase.from(table).update(patch as never).eq('id', id), 'Modifica non salvata');
   }
 
   protected setBalance(a: Account, text: string): void {
@@ -247,23 +272,23 @@ export class Settings {
     const results = await Promise.all(
       changes.map(({ x, order }) => supabase.from('categories').update({ sort_order: order }).eq('id', x.id)),
     );
-    this.done(results.find((r) => r.error)?.error ?? null, 'Ordine non salvato');
+    this.done(results.find((r) => r.error) ?? { error: null, status: 200 }, 'Ordine non salvato');
   }
 
   protected async addCategory(): Promise<void> {
     const order = Math.max(-1, ...this.byKind(this.newKind).map((c) => c.sort_order)) + 1;
-    const { error } = await supabase
+    const res = await supabase
       .from('categories')
       .insert({ name: this.newCategory.trim(), kind: this.newKind, sort_order: order });
-    if (!error) this.newCategory = '';
-    this.done(error, error?.code === '23505' ? 'Esiste già una categoria con questo nome' : 'Categoria non aggiunta');
+    if (!res.error) this.newCategory = '';
+    this.done(res, res.error?.code === '23505' ? 'Esiste già una categoria con questo nome' : 'Categoria non aggiunta');
   }
 
   protected async addAccount(): Promise<void> {
     const order = Math.max(-1, ...this.ledger.accounts().map((a) => a.sort_order)) + 1;
-    const { error } = await supabase.from('accounts').insert({ name: this.newAccount.trim(), sort_order: order });
-    if (!error) this.newAccount = '';
-    this.done(error, error?.code === '23505' ? 'Esiste già un conto con questo nome' : 'Conto non aggiunto');
+    const res = await supabase.from('accounts').insert({ name: this.newAccount.trim(), sort_order: order });
+    if (!res.error) this.newAccount = '';
+    this.done(res, res.error?.code === '23505' ? 'Esiste già un conto con questo nome' : 'Conto non aggiunto');
   }
 
   /** Prima prova a inviare le modifiche in attesa: uscire le cancellerebbe. */
@@ -279,8 +304,9 @@ export class Settings {
     await this.router.navigateByUrl('/accesso');
   }
 
-  private done(error: { message: string } | null, message: string): void {
-    if (error) this.snackBar.open(`${message}: ${error.message}`, 'OK');
+  private done(res: { error: { message: string } | null; status: number }, message: string): void {
+    // status 0 = la richiesta non è partita (rete assente): il messaggio tecnico non serve.
+    if (res.error) this.snackBar.open(`${message}: ${res.status === 0 ? 'nessuna connessione' : res.error.message}`, 'OK');
     void this.ledger.load();
   }
 }
