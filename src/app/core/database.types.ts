@@ -37,6 +37,20 @@ export type Database = {
                   Relationships: [
                     
                   ]
+                },"api_tokens": {
+                  Row: {
+                    "created_at": string,"id": string,"last_used_at": string | null,"name": string,"revoked_at": string | null,"token_hash": string,"user_id": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "created_at"?: string,"id"?: string,"last_used_at"?: string | null,"name": string,"revoked_at"?: string | null,"token_hash": string,"user_id"?: string
+                  }
+                  Update: {
+                    "created_at"?: string,"id"?: string,"last_used_at"?: string | null,"name"?: string,"revoked_at"?: string | null,"token_hash"?: string,"user_id"?: string
+                  }
+                  Relationships: [
+                    
+                  ]
                 },"buckets": {
                   Row: {
                     "created_at": string,"id": string,"name": string,"sort_order": number,"target_pct": number,"user_id": string
@@ -77,6 +91,26 @@ isOneToOne: false
       referencedColumns: ["id","user_id"]
     }
                   ]
+                },"cards": {
+                  Row: {
+                    "account_id": string,"created_at": string,"id": string,"last4": string,"user_id": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "account_id": string,"created_at"?: string,"id"?: string,"last4": string,"user_id"?: string
+                  }
+                  Update: {
+                    "account_id"?: string,"created_at"?: string,"id"?: string,"last4"?: string,"user_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "cards_account_id_user_id_fkey"
+      columns: ["account_id","user_id"]
+isOneToOne: false
+      referencedRelation: "accounts"
+      referencedColumns: ["id","user_id"]
+    }
+                  ]
                 },"categories": {
                   Row: {
                     "archived": boolean,"created_at": string,"id": string,"is_salary": boolean,"kind": string,"name": string,"sort_order": number,"user_id": string
@@ -87,6 +121,52 @@ isOneToOne: false
                   }
                   Update: {
                     "archived"?: boolean,"created_at"?: string,"id"?: string,"is_salary"?: boolean,"kind"?: string,"name"?: string,"sort_order"?: number,"user_id"?: string
+                  }
+                  Relationships: [
+                    
+                  ]
+                },"ingest_events": {
+                  Row: {
+                    "app": string,"body": string | null,"client_event_id": string,"created_at": string,"error": string | null,"id": string,"occurred_at": string,"rule_id": string | null,"source": string,"status": string,"subtitle": string | null,"title": string | null,"token_id": string | null,"transaction_id": string | null,"user_id": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "app": string,"body"?: string | null,"client_event_id": string,"created_at"?: string,"error"?: string | null,"id"?: string,"occurred_at": string,"rule_id"?: string | null,"source"?: string,"status": string,"subtitle"?: string | null,"title"?: string | null,"token_id"?: string | null,"transaction_id"?: string | null,"user_id": string
+                  }
+                  Update: {
+                    "app"?: string,"body"?: string | null,"client_event_id"?: string,"created_at"?: string,"error"?: string | null,"id"?: string,"occurred_at"?: string,"rule_id"?: string | null,"source"?: string,"status"?: string,"subtitle"?: string | null,"title"?: string | null,"token_id"?: string | null,"transaction_id"?: string | null,"user_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "ingest_events_rule_id_fkey"
+      columns: ["rule_id"]
+isOneToOne: false
+      referencedRelation: "parse_rules"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "ingest_events_token_id_fkey"
+      columns: ["token_id"]
+isOneToOne: false
+      referencedRelation: "api_tokens"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "ingest_events_transaction_id_user_id_fkey"
+      columns: ["transaction_id","user_id"]
+isOneToOne: false
+      referencedRelation: "transactions"
+      referencedColumns: ["id","user_id"]
+    }
+                  ]
+                },"parse_rules": {
+                  Row: {
+                    "action": string,"amount_regex": string | null,"app": string,"card_regex": string | null,"created_at": string,"id": string,"match_regex": string,"merchant_regex": string | null,"priority": number,"user_id": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "action": string,"amount_regex"?: string | null,"app": string,"card_regex"?: string | null,"created_at"?: string,"id"?: string,"match_regex": string,"merchant_regex"?: string | null,"priority"?: number,"user_id"?: string
+                  }
+                  Update: {
+                    "action"?: string,"amount_regex"?: string | null,"app"?: string,"card_regex"?: string | null,"created_at"?: string,"id"?: string,"match_regex"?: string,"merchant_regex"?: string | null,"priority"?: number,"user_id"?: string
                   }
                   Relationships: [
                     
@@ -212,8 +292,14 @@ isOneToOne: false
             "create_transfer":
 { Args: { "p_amount_cents": number,"p_booking_date"?: string,"p_from": string,"p_id": string,"p_note"?: string,"p_to": string }; Returns: undefined
                            },
+"ingest":
+{ Args: { "app": string,"body"?: string,"event_id": string,"occurred_at": string,"subtitle"?: string,"title"?: string,"token": string }; Returns: Json
+                           },
 "month_overview":
 { Args: { "p_month": string,"p_today"?: string }; Returns: Json
+                           },
+"reprocess_event":
+{ Args: { "p_event_id": string }; Returns: Json
                            }
           }
           Enums: {

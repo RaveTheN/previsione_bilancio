@@ -14,6 +14,9 @@ export type Account = Tables['accounts']['Row'];
 export type Tag = Tables['tags']['Row'];
 export type Transaction = Tables['transactions']['Row'] & { transaction_tags?: { tag_id: string }[] };
 export type Settings = Tables['settings']['Row'];
+export type ApiToken = Tables['api_tokens']['Row'];
+export type Card = Tables['cards']['Row'];
+export type IngestEvent = Tables['ingest_events']['Row'];
 
 /** Riga di month_overview: categoria e secchio, con previsione ed effettivo del mese. */
 export interface MonthLine {

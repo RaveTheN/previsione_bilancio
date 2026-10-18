@@ -209,6 +209,7 @@ export class Transactions {
       this.isUnassigned(t) ? (cat ? `${cat.name} · secchio da assegnare` : 'Da assegnare') : cat?.name,
       bucket?.name,
       ...tags,
+      t.review_reason ? 'da controllare' : null,
       this.pendingIds().has(t.id) ? 'in attesa di invio' : null,
     ];
     return parts.filter(Boolean).join(' · ');

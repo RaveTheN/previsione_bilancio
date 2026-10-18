@@ -1,5 +1,6 @@
 import { Component, inject } from '@angular/core';
 import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
+import { Ledger } from '../../core/ledger';
 import { Sync } from '../../core/sync';
 import { QuickAddLauncher } from '../quick-add/quick-add';
 
@@ -28,6 +29,17 @@ import { QuickAddLauncher } from '../quick-add/quick-add';
       <button type="button" class="add" aria-label="Nuovo movimento" (click)="quickAdd.open()">
         <svg viewBox="0 -960 960 960" aria-hidden="true"><path d="M440-440H200v-80h240v-240h80v240h240v80H520v240h-80v-240Z" /></svg>
       </button>
+      <a routerLink="/da-rivedere" routerLinkActive="active">
+        <svg viewBox="0 -960 960 960" aria-hidden="true">
+          <path
+            d="M200-120q-33 0-56.5-23.5T120-200v-560q0-33 23.5-56.5T200-840h560q33 0 56.5 23.5T840-760v560q0 33-23.5 56.5T760-120H200Zm0-80h560v-120H640q-30 38-71.5 59T480-240q-47 0-88.5-21T320-320H200v120Zm280-120q38 0 69-22t43-58h168v-360H200v360h168q12 36 43 58t69 22Z"
+          />
+        </svg>
+        <span>Da rivedere</span>
+        @if (ledger.reviewCount()) {
+          <span class="badge" [attr.aria-label]="ledger.reviewCount() + ' da rivedere'">{{ ledger.reviewCount() }}</span>
+        }
+      </a>
       <a routerLink="/altro" routerLinkActive="active">
         <svg viewBox="0 -960 960 960" aria-hidden="true">
           <path
@@ -146,4 +158,5 @@ import { QuickAddLauncher } from '../quick-add/quick-add';
 export class Shell {
   protected readonly quickAdd = inject(QuickAddLauncher);
   protected readonly sync = inject(Sync);
+  protected readonly ledger = inject(Ledger);
 }

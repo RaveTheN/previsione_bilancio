@@ -67,6 +67,7 @@ python tools/import/import.py bbva estratto.xlsx --saldo 1234.56 --al 2026-10-12
 ## Documentazione
 
 - [Backup e ripristino](docs/ripristino-backup.md)
+- [Comandi Rapidi: notifiche della banca → movimenti](docs/comandi-rapidi.md)
 - [Spike iOS: verifica dei trigger dei Comandi Rapidi](docs/ios-spike.md)
 
 I file Excel, `PLAN.md`, il mapping e gli output degli import contengono dati personali e sono esclusi da Git (`.gitignore`). Le fixture dei test usano solo dati finti.

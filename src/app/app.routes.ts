@@ -13,6 +13,7 @@ export const routes: Routes = [
         path: 'movimenti',
         loadComponent: () => import('./features/transactions/transactions').then((m) => m.Transactions),
       },
+      { path: 'da-rivedere', loadComponent: () => import('./features/review/review').then((m) => m.Review) },
       { path: 'altro', loadComponent: () => import('./features/settings/settings').then((m) => m.Settings) },
       { path: '', pathMatch: 'full', redirectTo: 'mese' },
     ],

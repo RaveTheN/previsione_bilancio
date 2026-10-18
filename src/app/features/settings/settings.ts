@@ -9,6 +9,7 @@ import { centsToInput, parseSignedAmount } from '../../core/money';
 import { onlineSignal } from '../../core/online';
 import { Account, Category, errorText, supabase } from '../../core/supabase';
 import { Sync } from '../../core/sync';
+import { Devices } from './devices';
 
 const KINDS = [
   { value: 'income', label: 'Entrate' },
@@ -26,7 +27,7 @@ async function clearDataCaches(): Promise<void> {
 
 @Component({
   selector: 'app-settings',
-  imports: [FormsModule, MatButtonModule],
+  imports: [Devices, FormsModule, MatButtonModule],
   template: `
     <h1>Altro</h1>
 
@@ -43,7 +44,7 @@ async function clearDataCaches(): Promise<void> {
     </section>
 
     @if (!online()) {
-      <p class="warn" role="status">Sei offline: bilancio, categorie e conti si modificano solo con la connessione.</p>
+      <p class="warn" role="status">Sei offline: impostazioni, categorie, conti e dispositivi si modificano solo con la connessione.</p>
     }
 
     <fieldset [disabled]="!online()">
@@ -135,6 +136,8 @@ async function clearDataCaches(): Promise<void> {
         <button mat-stroked-button type="submit" [disabled]="!newAccount.trim()">Aggiungi</button>
       </form>
     </section>
+
+    <app-devices />
     </fieldset>
 
     <section>

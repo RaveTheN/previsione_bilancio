@@ -54,3 +54,17 @@ select u.id, a.name, a.role, a.ord
 from auth.users u,
   (values ('BBVA', 'spendable', 1), ('Salvadanaio', 'reserve', 2)) as a (name, role, ord)
 on conflict do nothing;
+
+-- Regole delle notifiche BBVA (Fase 3), scritte sui testi reali dello spike:
+--   "Pagamento accettato 👍💳Pagamento di 12,00 EUR presso NEGOZIO effettuato con la tua carta *1234"
+--   "Puoi rateizzare questo acquisto da 48,30 EUR presso NEGOZIO con la tua carta *1234. Simula le rate."
+insert into public.parse_rules (user_id, app, priority, match_regex, action, amount_regex, merchant_regex, card_regex)
+select u.id, 'BBVA', r.priority, r.match_regex, 'expense', '([0-9][0-9.,]*)\s*EUR', r.merchant_regex, 'carta\s+\*+(\d{4})'
+from auth.users u,
+  (values
+    (1, 'Pagamento accettato', 'presso\s+(.+?)\s+effettuato con'),
+    (2, 'rateizzare questo acquisto', 'presso\s+(.+?)\s+con la tua carta')
+  ) as r (priority, match_regex, merchant_regex)
+where not exists (
+  select from public.parse_rules p where p.user_id = u.id and p.app = 'BBVA' and p.match_regex = r.match_regex
+);

@@ -279,6 +279,22 @@ export class QuickAdd {
   protected save(): void {
     const cents = this.amountCents();
     if (!cents || !this.accountId) return;
+    const signed = this.income() ? cents : -cents;
+    if (!this.tx) {
+      // Una spesa già arrivata da una notifica non va registrata di nuovo senza volerlo.
+      const twin = this.ledger
+        .transactions()
+        .find(
+          (t) =>
+            t.source !== 'manual' &&
+            t.account_id === this.accountId &&
+            t.amount_cents === signed &&
+            Math.abs(Date.parse(t.booking_date) - Date.parse(this.date)) <= 86_400_000,
+        );
+      if (twin && !confirm(`Sembra già registrata: ${twin.merchant_raw ?? 'movimento'} del ${twin.booking_date}. Salvare comunque?`)) {
+        return;
+      }
+    }
     const id = this.tx?.id ?? crypto.randomUUID();
     const occurredAt =
       this.tx?.booking_date === this.date
@@ -291,7 +307,7 @@ export class QuickAdd {
       account_id: this.accountId,
       category_id: this.categoryId(),
       bucket_id: this.income() ? null : this.bucketId(),
-      amount_cents: this.income() ? cents : -cents,
+      amount_cents: signed,
       booking_date: this.date,
       occurred_at: occurredAt,
       note: this.note.trim() || null,

@@ -37,6 +37,8 @@ export class Ledger {
   readonly accounts = signal<Account[]>([]);
   readonly tags = signal<Tag[]>([]);
   readonly settings = signal<Settings | null>(null);
+  /** Elementi di "Da rivedere": notifiche non riconosciute e movimenti da controllare. */
+  readonly reviewCount = signal(0);
   readonly loadError = signal('');
   private readonly serverRows = signal<Transaction[]>([]);
   private readonly loaded = signal<{ month: string; overview: MonthOverview } | null>(null);
@@ -68,7 +70,7 @@ export class Ledger {
   }
 
   async load(month = this.month()): Promise<void> {
-    const [cats, buckets, accounts, tags, settings, rows, overview] = await Promise.all([
+    const [cats, buckets, accounts, tags, settings, rows, overview, events, toCheck] = await Promise.all([
       supabase.from('categories').select().order('sort_order'),
       supabase.from('buckets').select().order('sort_order'),
       supabase.from('accounts').select().order('sort_order'),
@@ -77,14 +79,18 @@ export class Ledger {
       supabase.from('transactions').select('*, transaction_tags(tag_id)').eq('month', month),
       // In GET: il service worker la conserva per la lettura offline.
       supabase.rpc('month_overview', { p_month: month }, { get: true }),
+      // Elenchi di soli id (e non conteggi in HEAD): così il badge resta leggibile anche offline.
+      supabase.from('ingest_events').select('id').in('status', ['unrecognized', 'error']).is('transaction_id', null),
+      supabase.from('transactions').select('id').or('review_reason.not.is.null,status.eq.pending'),
     ]);
-    const error = [cats, buckets, accounts, tags, settings, rows, overview].find((r) => r.error)?.error;
+    const error = [cats, buckets, accounts, tags, settings, rows, overview, events, toCheck].find((r) => r.error)?.error;
     this.loadError.set(error ? 'Dati non aggiornati: ' + error.message : '');
     if (cats.data) this.categories.set(cats.data);
     if (buckets.data) this.buckets.set(buckets.data);
     if (accounts.data) this.accounts.set(accounts.data);
     if (tags.data) this.tags.set(tags.data);
     if (!settings.error) this.settings.set(settings.data);
+    if (events.data && toCheck.data) this.reviewCount.set(events.data.length + toCheck.data.length);
     // Una risposta lenta di un mese già lasciato non sovrascrive quello mostrato.
     if (month === this.month()) {
       if (rows.data) this.serverRows.set(rows.data);
