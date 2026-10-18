@@ -8,6 +8,9 @@ CLAUDE.md
 tools/import/out/
 tools/import/mapping.json
 .env*
+# Esportazioni dello spike iOS (note con notifiche reali)
+*.zip
+Attachment*.txt
 
 # Dipendenze e build
 node_modules/
