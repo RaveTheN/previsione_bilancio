@@ -1,12 +1,13 @@
-import { Component, DestroyRef, inject, signal } from '@angular/core';
+import { Component, inject } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
 import { MatSnackBar } from '@angular/material/snack-bar';
 import { Auth } from '../../core/auth';
 import { Ledger } from '../../core/ledger';
-import { parseAmount } from '../../core/money';
-import { Account, Category, supabase } from '../../core/supabase';
+import { centsToInput, parseSignedAmount } from '../../core/money';
+import { onlineSignal } from '../../core/online';
+import { Account, Category, errorText, supabase } from '../../core/supabase';
 import { Sync } from '../../core/sync';
 
 const KINDS = [
@@ -42,10 +43,37 @@ async function clearDataCaches(): Promise<void> {
     </section>
 
     @if (!online()) {
-      <p class="warn" role="status">Sei offline: categorie e conti si modificano solo con la connessione.</p>
+      <p class="warn" role="status">Sei offline: bilancio, categorie e conti si modificano solo con la connessione.</p>
     }
 
     <fieldset [disabled]="!online()">
+    <section>
+      <h2>Bilancio</h2>
+      <div class="account">
+        <label>
+          Mese di avvio
+          <input type="month" [value]="ledger.settings()?.go_live_month?.slice(0, 7) ?? ''" (change)="setGoLive(value($event))" />
+        </label>
+        <label>
+          Residuo all'avvio (€): il disponibile sui conti spendibili all'inizio di quel mese
+          <input inputmode="decimal" [value]="centsToText(ledger.settings()?.opening_residual_cents)" (change)="setOpening(value($event))" />
+        </label>
+        <label>
+          Risparmio previsto (% dello stipendio previsto)
+          <input inputmode="decimal" [value]="ledger.settings()?.savings_pct ?? 15" (change)="setSavingsPct(value($event))" />
+        </label>
+        <label>
+          Secchio del risparmio (accantonamenti e previsione)
+          <select (change)="saveSettings({ savings_bucket_id: value($event) || null })">
+            <option value="" [selected]="!ledger.settings()?.savings_bucket_id">Nessuno</option>
+            @for (b of ledger.buckets(); track b.id) {
+              <option [value]="b.id" [selected]="b.id === ledger.settings()?.savings_bucket_id">{{ b.name }}</option>
+            }
+          </select>
+        </label>
+      </div>
+    </section>
+
     <section>
       <h2>Categorie</h2>
       @for (kind of kinds; track kind.value) {
@@ -220,17 +248,7 @@ export class Settings {
   protected newAccount = '';
 
   /** Le impostazioni si salvano solo online: la coda offline copre i movimenti. */
-  protected readonly online = signal(navigator.onLine);
-
-  constructor() {
-    const update = () => this.online.set(navigator.onLine);
-    window.addEventListener('online', update);
-    window.addEventListener('offline', update);
-    inject(DestroyRef).onDestroy(() => {
-      window.removeEventListener('online', update);
-      window.removeEventListener('offline', update);
-    });
-  }
+  protected readonly online = onlineSignal();
 
   protected byKind(kind: string): Category[] {
     return this.ledger.categories().filter((c) => c.kind === kind);
@@ -244,23 +262,63 @@ export class Settings {
     return (e.target as HTMLInputElement).checked;
   }
 
-  protected centsToText(cents: number | null): string {
-    return cents == null ? '' : (cents / 100).toFixed(2).replace('.', ',');
+  protected centsToText(cents: number | null | undefined): string {
+    return cents == null ? '' : centsToInput(cents);
   }
 
   protected async update(table: 'categories' | 'accounts', id: string, patch: Record<string, unknown>): Promise<void> {
     this.done(await supabase.from(table).update(patch as never).eq('id', id), 'Modifica non salvata');
   }
 
-  protected setBalance(a: Account, text: string): void {
-    const negative = text.startsWith('-');
-    const digits = text.replace('-', '');
-    const cents = digits === '' ? null : /^0+([.,]0+)?$/.test(digits) ? 0 : parseAmount(digits);
-    if (digits !== '' && cents === null) {
-      this.snackBar.open('Importo non valido', 'OK', { duration: 4000 });
+  /** La riga delle impostazioni nasce al primo salvataggio; i campi non inviati restano com'erano. */
+  protected async saveSettings(patch: {
+    go_live_month?: string;
+    opening_residual_cents?: number;
+    savings_pct?: number;
+    savings_bucket_id?: string | null;
+  }): Promise<void> {
+    this.done(await supabase.from('settings').upsert(patch), 'Impostazione non salvata');
+  }
+
+  protected setGoLive(month: string): void {
+    if (!/^\d{4}-\d{2}$/.test(month)) {
+      this.invalid('Mese non valido');
       return;
     }
-    void this.update('accounts', a.id, { balance_cents: cents === null ? null : negative ? -cents : cents });
+    void this.saveSettings({ go_live_month: month + '-01' });
+  }
+
+  protected setOpening(text: string): void {
+    const cents = parseSignedAmount(text);
+    if (cents === null) {
+      this.invalid('Importo non valido');
+      return;
+    }
+    void this.saveSettings({ opening_residual_cents: cents });
+  }
+
+  protected setSavingsPct(text: string): void {
+    const pct = Number(text.replace(',', '.'));
+    if (!text || !(pct >= 0 && pct <= 100)) {
+      this.invalid('Percentuale non valida: da 0 a 100');
+      return;
+    }
+    void this.saveSettings({ savings_pct: pct });
+  }
+
+  protected setBalance(a: Account, text: string): void {
+    const cents = text === '' ? null : parseSignedAmount(text);
+    if (text !== '' && cents === null) {
+      this.invalid('Importo non valido');
+      return;
+    }
+    void this.update('accounts', a.id, { balance_cents: cents });
+  }
+
+  /** Il campo resta com'era: ricaricando, torna il valore salvato. */
+  private invalid(message: string): void {
+    this.snackBar.open(message, 'OK', { duration: 4000 });
+    void this.ledger.load();
   }
 
   /** Riordina scambiando con la vicina e rinumerando l'elenco del tipo. */
@@ -305,8 +363,7 @@ export class Settings {
   }
 
   private done(res: { error: { message: string } | null; status: number }, message: string): void {
-    // status 0 = la richiesta non è partita (rete assente): il messaggio tecnico non serve.
-    if (res.error) this.snackBar.open(`${message}: ${res.status === 0 ? 'nessuna connessione' : res.error.message}`, 'OK');
+    if (res.error) this.snackBar.open(`${message}: ${errorText(res)}`, 'OK');
     void this.ledger.load();
   }
 }

@@ -32,12 +32,16 @@ import { QuickAddLauncher } from '../quick-add/quick-add';
           @for (t of day.items; track t.id) {
             <li>
               @if (t.transfer_group_id) {
-                <div class="row">
-                  <span class="text">
-                    <span class="title">{{ t.category_id ? 'Accantonamento' : 'Trasferimento' }}</span>
-                    <span class="sub">{{ ledger.accountById().get(t.account_id)?.name }}</span>
-                  </span>
-                  <span class="amount">{{ fmt(t.amount_cents) }}</span>
+                <!-- Non si modifica una riga sola: si elimina il trasferimento intero e lo si rifà. -->
+                <div class="swipe">
+                  <div class="row">
+                    <span class="text">
+                      <span class="title">{{ transferTitle(t) }}</span>
+                      <span class="sub">{{ ledger.accountById().get(t.account_id)?.name }}</span>
+                    </span>
+                    <span class="amount">{{ fmt(t.amount_cents) }}</span>
+                  </div>
+                  <button type="button" class="delete" (click)="launcher.remove(t)">Elimina</button>
                 </div>
               } @else {
                 <div class="swipe">
@@ -186,6 +190,11 @@ export class Transactions {
     if (t.transfer_group_id) return false;
     const cat = t.category_id ? this.ledger.categoryById().get(t.category_id) : undefined;
     return !cat || (cat.kind !== 'income' && !t.bucket_id);
+  }
+
+  protected transferTitle(t: Transaction): string {
+    if (!t.category_id) return 'Trasferimento';
+    return t.amount_cents < 0 ? 'Accantonamento' : 'Prelievo dalla riserva';
   }
 
   protected title(t: Transaction): string {

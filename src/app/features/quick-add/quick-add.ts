@@ -8,6 +8,7 @@ import { parseAmount } from '../../core/money';
 import { PendingOp } from '../../core/queue';
 import { Transaction } from '../../core/supabase';
 import { Sync } from '../../core/sync';
+import { TransferSheet } from '../transfer/transfer';
 
 const USAGE_KEY = 'bilancio.uso-categorie';
 const BUCKET_KEY = 'bilancio.secchio-per-categoria';
@@ -367,6 +368,7 @@ export class QuickAddLauncher {
   private readonly sheet = inject(MatBottomSheet);
   private readonly snackBar = inject(MatSnackBar);
   private readonly sync = inject(Sync);
+  private readonly ledger = inject(Ledger);
 
   open(tx?: Transaction): void {
     this.sheet
@@ -380,14 +382,26 @@ export class QuickAddLauncher {
       });
   }
 
+  openTransfer(): void {
+    this.sheet
+      .open<TransferSheet, void, string>(TransferSheet)
+      .afterDismissed()
+      .subscribe((group) => {
+        if (group) this.confirm('Trasferito', [{ table: 'transactions', kind: 'delete', match: { transfer_group_id: group } }]);
+      });
+  }
+
+  /** Un trasferimento si elimina con entrambe le righe (create con la stessa data, quindi nello stesso mese). */
   remove(t: Transaction): void {
+    const group = t.transfer_group_id;
+    const rows = group ? this.ledger.transactions().filter((x) => x.transfer_group_id === group) : [t];
     try {
-      this.sync.add({ table: 'transactions', kind: 'delete', match: { id: t.id } });
+      this.sync.add({ table: 'transactions', kind: 'delete', match: group ? { transfer_group_id: group } : { id: t.id } });
     } catch (e) {
       this.snackBar.open('Non eliminato: ' + (e instanceof Error ? e.message : String(e)), 'OK');
       return;
     }
-    this.confirm('Eliminato', restoreOps(t));
+    this.confirm('Eliminato', rows.flatMap(restoreOps));
   }
 
   /** "Salvato · Annulla": l'annullamento passa anch'esso dalla coda. */

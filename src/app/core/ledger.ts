@@ -1,7 +1,7 @@
 import { computed, effect, inject, Injectable, signal, untracked } from '@angular/core';
 import { Auth } from './auth';
 import { applyPending } from './queue';
-import { Account, Bucket, Category, MonthActual, supabase, Tag, Transaction } from './supabase';
+import { Account, Bucket, Category, MonthOverview, Settings, supabase, Tag, Transaction } from './supabase';
 import { Sync } from './sync';
 
 /** Data di oggi in ora italiana, "2026-10-16". */
@@ -36,9 +36,16 @@ export class Ledger {
   readonly buckets = signal<Bucket[]>([]);
   readonly accounts = signal<Account[]>([]);
   readonly tags = signal<Tag[]>([]);
-  readonly actuals = signal<MonthActual[]>([]);
+  readonly settings = signal<Settings | null>(null);
   readonly loadError = signal('');
   private readonly serverRows = signal<Transaction[]>([]);
+  private readonly loaded = signal<{ month: string; overview: MonthOverview } | null>(null);
+
+  /** Vista del mese selezionato; null finché non arriva quella giusta, così non si modifica il mese sbagliato. */
+  readonly overview = computed(() => {
+    const loaded = this.loaded();
+    return loaded?.month === this.month() ? loaded.overview : null;
+  });
 
   /** Movimenti del mese, compresi quelli ancora in coda. */
   readonly transactions = computed(() =>
@@ -61,23 +68,27 @@ export class Ledger {
   }
 
   async load(month = this.month()): Promise<void> {
-    const [cats, buckets, accounts, tags, rows, actuals] = await Promise.all([
+    const [cats, buckets, accounts, tags, settings, rows, overview] = await Promise.all([
       supabase.from('categories').select().order('sort_order'),
       supabase.from('buckets').select().order('sort_order'),
       supabase.from('accounts').select().order('sort_order'),
       supabase.from('tags').select().order('name'),
+      supabase.from('settings').select().maybeSingle(),
       supabase.from('transactions').select('*, transaction_tags(tag_id)').eq('month', month),
-      supabase.from('month_actuals').select().eq('month', month),
+      // In GET: il service worker la conserva per la lettura offline.
+      supabase.rpc('month_overview', { p_month: month }, { get: true }),
     ]);
-    const error = [cats, buckets, accounts, tags, rows, actuals].find((r) => r.error)?.error;
+    const error = [cats, buckets, accounts, tags, settings, rows, overview].find((r) => r.error)?.error;
     this.loadError.set(error ? 'Dati non aggiornati: ' + error.message : '');
     if (cats.data) this.categories.set(cats.data);
     if (buckets.data) this.buckets.set(buckets.data);
     if (accounts.data) this.accounts.set(accounts.data);
     if (tags.data) this.tags.set(tags.data);
+    if (!settings.error) this.settings.set(settings.data);
+    // Una risposta lenta di un mese già lasciato non sovrascrive quello mostrato.
     if (month === this.month()) {
       if (rows.data) this.serverRows.set(rows.data);
-      if (actuals.data) this.actuals.set(actuals.data);
+      if (overview.data) this.loaded.set({ month, overview: overview.data as unknown as MonthOverview });
     }
   }
 }

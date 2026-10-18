@@ -22,3 +22,27 @@ export function parseAmount(text: string): number | null {
   const cents = Number(intDigits) * 100 + Number(decDigits);
   return cents > 0 ? cents : null;
 }
+
+/** Come parseAmount, ma accetta anche zero e il segno meno: per saldi e previsioni. */
+export function parseSignedAmount(text: string): number | null {
+  const t = text.replace(/[\s€]/g, '');
+  const negative = t.startsWith('-');
+  const digits = negative ? t.slice(1) : t;
+  const cents = /^0+([.,]0+)?$/.test(digits) ? 0 : parseAmount(digits);
+  return cents === null ? null : negative && cents ? -cents : cents;
+}
+
+/** Centesimi → testo per un campo modificabile: -1250 → "-12,50". */
+export function centsToInput(cents: number): string {
+  return (cents / 100).toFixed(2).replace('.', ',');
+}
+
+/**
+ * Esito della differenza effettivo − previsione, con importi con segno: per entrate e
+ * uscite una differenza positiva è meglio del previsto; per il risparmio è meglio
+ * accantonare di più (cioè una differenza negativa).
+ */
+export function diffTone(kind: string, forecast: number, actual: number): 'better' | 'worse' | 'even' {
+  const diff = (actual - forecast) * (kind === 'saving' ? -1 : 1);
+  return diff > 0 ? 'better' : diff < 0 ? 'worse' : 'even';
+}

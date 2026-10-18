@@ -57,7 +57,9 @@ export function applyPending<T extends { id: string }>(rows: T[], ops: PendingOp
       const old = out.find((r) => r.id === row.id);
       out = [...out.filter((r) => r.id !== row.id), { ...old, ...row }];
     } else {
-      out = out.filter((r) => r.id !== op.match['id']);
+      // Per id, oppure per gruppo: un trasferimento si elimina con entrambe le righe.
+      const match = Object.entries(op.match);
+      out = out.filter((r) => !match.every(([k, v]) => (r as Record<string, unknown>)[k] === v));
     }
   }
   return out;

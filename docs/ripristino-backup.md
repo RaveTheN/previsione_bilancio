@@ -21,10 +21,12 @@ Il piano Free di Supabase non fa backup. Ogni notte un workflow nel repo **priva
 
 ## Ripristino
 
-Serve Docker (per `psql`) e la chiave privata salvata in un file temporaneo `bilancio-backup.key`.
+Serve Docker (per `psql`) e la chiave privata salvata in un file temporaneo `bilancio-backup.key`. Lavora in una cartella fuori dal repo, per esempio `C:\ripristino-bilancio`.
 
 ```powershell
-age -d -i bilancio-backup.key backup.tar.gz.age | tar xzf -
+# Prima su file: in PowerShell 5.1 una pipe corrompe i dati binari.
+age -d -i bilancio-backup.key -o backup.tar.gz backup.tar.gz.age
+tar -xzf backup.tar.gz
 docker run --rm -v "${PWD}:/b" -w /b postgres:17 psql --single-transaction --variable ON_ERROR_STOP=1 `
   --file roles.sql --file schema.sql --command 'SET session_replication_role = replica' --file data.sql `
   --dbname "<stringa di connessione del progetto di destinazione>"
@@ -35,7 +37,12 @@ docker run --rm -v "${PWD}:/b" -w /b postgres:17 psql --single-transaction --var
 
 Il secondo comando serve solo se il backup contiene `history_schema.sql`: la storia delle migrazioni esiste dopo il primo `supabase db push`.
 
-Dopo il ripristino cancella i file `.sql` estratti e la chiave temporanea.
+Dopo il ripristino cancella la cartella, con i file `.sql` estratti e la chiave temporanea.
+
+Note dalla prova del 17/10/2026:
+
+- se `roles.sql` si ferma su `GRANT SET ON PARAMETER "log_min_messages"`, commenta quella riga: il permesso è già presente nei progetti nuovi;
+- il trigger dell'opzione "Enable automatic RLS" non è nel backup: in un ripristino d'emergenza su un progetto nuovo va riattivata a mano dalla dashboard (le migrazioni attivano comunque la RLS su ogni tabella).
 
 La procedura segue la [guida ufficiale Supabase](https://supabase.com/docs/guides/platform/migrating-within-supabase/backup-restore). Se compaiono errori su `supabase_admin` o `cli_login_postgres`, la guida indica quali righe commentare.
 

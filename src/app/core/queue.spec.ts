@@ -70,4 +70,14 @@ describe('applyPending', () => {
       { id: '3', amount: 30 },
     ]);
   });
+
+  it('elimina entrambe le righe di un trasferimento', () => {
+    const rows = [
+      { id: '1', transfer_group_id: 'g' },
+      { id: '2', transfer_group_id: 'g' },
+      { id: '3', transfer_group_id: null },
+    ];
+    const ops: PendingOp[] = [{ table: 'transactions', kind: 'delete', match: { transfer_group_id: 'g' } }];
+    expect(applyPending(rows, ops)).toEqual([{ id: '3', transfer_group_id: null }]);
+  });
 });

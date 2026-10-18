@@ -51,6 +51,32 @@ export type Database = {
                   Relationships: [
                     
                   ]
+                },"budget_lines": {
+                  Row: {
+                    "amount_cents": number,"bucket_id": string | null,"category_id": string,"created_at": string,"id": string,"month": string,"user_id": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "amount_cents": number,"bucket_id"?: string | null,"category_id": string,"created_at"?: string,"id"?: string,"month": string,"user_id"?: string
+                  }
+                  Update: {
+                    "amount_cents"?: number,"bucket_id"?: string | null,"category_id"?: string,"created_at"?: string,"id"?: string,"month"?: string,"user_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "budget_lines_bucket_id_user_id_fkey"
+      columns: ["bucket_id","user_id"]
+isOneToOne: false
+      referencedRelation: "buckets"
+      referencedColumns: ["id","user_id"]
+    },{
+      foreignKeyName: "budget_lines_category_id_user_id_fkey"
+      columns: ["category_id","user_id"]
+isOneToOne: false
+      referencedRelation: "categories"
+      referencedColumns: ["id","user_id"]
+    }
+                  ]
                 },"categories": {
                   Row: {
                     "archived": boolean,"created_at": string,"id": string,"is_salary": boolean,"kind": string,"name": string,"sort_order": number,"user_id": string
@@ -64,6 +90,26 @@ export type Database = {
                   }
                   Relationships: [
                     
+                  ]
+                },"settings": {
+                  Row: {
+                    "created_at": string,"go_live_month": string,"opening_residual_cents": number,"savings_bucket_id": string | null,"savings_pct": number,"user_id": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "created_at"?: string,"go_live_month"?: string,"opening_residual_cents"?: number,"savings_bucket_id"?: string | null,"savings_pct"?: number,"user_id"?: string
+                  }
+                  Update: {
+                    "created_at"?: string,"go_live_month"?: string,"opening_residual_cents"?: number,"savings_bucket_id"?: string | null,"savings_pct"?: number,"user_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "settings_savings_bucket_id_user_id_fkey"
+      columns: ["savings_bucket_id","user_id"]
+isOneToOne: false
+      referencedRelation: "buckets"
+      referencedColumns: ["id","user_id"]
+    }
                   ]
                 },"tags": {
                   Row: {
@@ -163,7 +209,12 @@ isOneToOne: false
                 }
           }
           Functions: {
-            [_ in never]: never
+            "create_transfer":
+{ Args: { "p_amount_cents": number,"p_booking_date"?: string,"p_from": string,"p_id": string,"p_note"?: string,"p_to": string }; Returns: undefined
+                           },
+"month_overview":
+{ Args: { "p_month": string,"p_today"?: string }; Returns: Json
+                           }
           }
           Enums: {
             [_ in never]: never

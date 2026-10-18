@@ -1,4 +1,4 @@
-import { formatCents, parseAmount } from './money';
+import { diffTone, formatCents, parseAmount, parseSignedAmount } from './money';
 
 describe('parseAmount', () => {
   it.each([
@@ -16,6 +16,39 @@ describe('parseAmount', () => {
 
   it.each(['', '0', '0,00', 'abc', '12,', '-5', '1.234,567'])('"%s" non è valido', (text) => {
     expect(parseAmount(text)).toBeNull();
+  });
+});
+
+describe('parseSignedAmount', () => {
+  it.each([
+    ['0', 0],
+    ['0,00', 0],
+    ['-0', 0],
+    ['12,50', 1250],
+    ['-12,50', -1250],
+    ['- 1.234,56 €', -123456],
+  ])('"%s" → %i centesimi', (text, cents) => {
+    expect(parseSignedAmount(text)).toBe(cents);
+  });
+
+  it.each(['', '-', 'abc', '--5'])('"%s" non è valido', (text) => {
+    expect(parseSignedAmount(text)).toBeNull();
+  });
+});
+
+describe('diffTone', () => {
+  it.each([
+    ['expense', -20000, -24000, 'worse'],
+    ['expense', -20000, -18000, 'better'],
+    ['expense', -2500, -2500, 'even'],
+    ['expense', 0, -500, 'worse'],
+    ['income', 180000, 190000, 'better'],
+    ['income', 180000, 0, 'worse'],
+    ['saving', -27000, -30000, 'better'],
+    ['saving', -27000, -20000, 'worse'],
+    ['saving', 0, 7000, 'worse'],
+  ])('%s: previsto %i, effettivo %i → %s', (kind, forecast, actual, tone) => {
+    expect(diffTone(kind as string, forecast as number, actual as number)).toBe(tone);
   });
 });
 

@@ -18,7 +18,8 @@ Primo avvio dello stack locale (e dopo ogni `npx supabase db reset`):
 
 1. in Studio (<http://127.0.0.1:54323>) → Authentication → Add user: crea un utente con email confermata;
 2. in Studio → SQL Editor: esegui `docs/setup-iniziale.sql`;
-3. se vuoi dati realistici, esegui anche il file generato dall'importatore (vedi "Import dell'estratto conto").
+3. se vuoi dati realistici, esegui anche il file generato dall'importatore (vedi "Import dell'estratto conto");
+4. nell'app, Altro → Bilancio: imposta mese di avvio, residuo all'avvio e secchio del risparmio.
 
 Dopo una modifica allo schema rigenera i tipi con `npm run db:types`.
 
@@ -50,12 +51,12 @@ npx ng build                # build di produzione
 2. **App:** copia URL del progetto e publishable key (Project Settings → API Keys) in `src/environments/environment.ts`. Sono pubblici per natura: i dati li protegge la RLS.
 3. **GitHub:** Settings → Pages → Source: "GitHub Actions"; Settings → Advanced Security: attiva Secret scanning e Push protection.
 4. **Backup:** segui [docs/ripristino-backup.md](docs/ripristino-backup.md).
-5. **Dati iniziali:** applica le migrazioni (`npx supabase db push`), poi nello SQL Editor di produzione esegui `docs/setup-iniziale.sql` (secchi, categorie, conti BBVA e Salvadanaio).
+5. **Dati iniziali:** applica le migrazioni (`npx supabase db push`), poi nello SQL Editor di produzione esegui `docs/setup-iniziale.sql` (secchi, categorie, conti BBVA e Salvadanaio). Infine, nell'app, Altro → Bilancio: mese di avvio, residuo all'avvio, percentuale e secchio del risparmio.
 
 ## Import dell'estratto conto
 
 ```powershell
-python tools/import/import.py bbva 12-10-2026.xlsx --saldo 939.88 --al 2026-10-12
+python tools/import/import.py bbva estratto.xlsx --saldo 1234.56 --al 2026-10-12
 ```
 
 - Genera `tools/import/out/estratto-bbva.sql` (escluso da Git) e stampa un rapporto: righe, netto per mese, accantonamenti, movimenti da classificare e la ricostruzione del saldo di apertura.
