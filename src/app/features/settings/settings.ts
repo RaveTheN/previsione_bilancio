@@ -1,15 +1,17 @@
-import { Component, inject } from '@angular/core';
+import { Component, computed, inject } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
 import { MatSnackBar } from '@angular/material/snack-bar';
 import { Auth } from '../../core/auth';
-import { Ledger } from '../../core/ledger';
+import { Ledger, monthLabel } from '../../core/ledger';
 import { centsToInput, parseSignedAmount } from '../../core/money';
 import { onlineSignal } from '../../core/online';
 import { Account, Category, errorText, supabase } from '../../core/supabase';
 import { Sync } from '../../core/sync';
 import { Devices } from './devices';
+
+const percent = new Intl.NumberFormat('it-IT', { style: 'percent', maximumFractionDigits: 1 });
 
 const KINDS = [
   { value: 'income', label: 'Entrate' },
@@ -62,8 +64,25 @@ async function clearDataCaches(): Promise<void> {
           <input inputmode="decimal" [value]="centsToText(ledger.settings()?.opening_residual_cents)" (change)="setOpening(value($event))" />
         </label>
         <label>
-          Risparmio previsto (% dello stipendio previsto)
-          <input inputmode="decimal" [value]="ledger.settings()?.savings_pct ?? 15" (change)="setSavingsPct(value($event))" />
+          Risparmio previsto: importo fisso al mese (€)
+          <input
+            inputmode="decimal"
+            placeholder="vuoto = percentuale dello stipendio"
+            [value]="centsToText(ledger.settings()?.savings_amount_cents)"
+            (change)="setSavingsAmount(value($event))"
+          />
+        </label>
+        @if (derivedPct()) {
+          <p class="note">{{ derivedPct() }}</p>
+        }
+        <label>
+          Oppure in percentuale dello stipendio previsto (%)
+          <input
+            inputmode="decimal"
+            [disabled]="ledger.settings()?.savings_amount_cents != null"
+            [value]="ledger.settings()?.savings_pct ?? 15"
+            (change)="setSavingsPct(value($event))"
+          />
         </label>
         <label>
           Secchio del risparmio (accantonamenti e previsione)
@@ -238,6 +257,10 @@ async function clearDataCaches(): Promise<void> {
     .warn {
       color: var(--mat-sys-error);
     }
+    .note {
+      margin: 0;
+      color: var(--mat-sys-on-surface-variant);
+    }
     .link {
       display: flex;
       align-items: center;
@@ -286,6 +309,7 @@ export class Settings {
     go_live_month?: string;
     opening_residual_cents?: number;
     savings_pct?: number;
+    savings_amount_cents?: number | null;
     savings_bucket_id?: string | null;
   }): Promise<void> {
     this.done(await supabase.from('settings').upsert(patch), 'Impostazione non salvata');
@@ -307,6 +331,30 @@ export class Settings {
     }
     void this.saveSettings({ opening_residual_cents: cents });
   }
+
+  /** Vuoto = torna alla percentuale. */
+  protected setSavingsAmount(text: string): void {
+    const cents = text === '' ? null : parseSignedAmount(text);
+    if (text !== '' && (cents === null || cents < 0)) {
+      this.invalid('Importo non valido');
+      return;
+    }
+    void this.saveSettings({ savings_amount_cents: cents });
+  }
+
+  /** La percentuale che l'importo fisso rappresenta sullo stipendio previsto del mese selezionato. */
+  protected readonly derivedPct = computed(() => {
+    const amount = this.ledger.settings()?.savings_amount_cents;
+    if (amount == null) return '';
+    const cats = this.ledger.categoryById();
+    const salary = (this.ledger.overview()?.lines ?? [])
+      .filter((l) => cats.get(l.category_id ?? '')?.is_salary)
+      .reduce((sum, l) => sum + (l.forecast ?? 0), 0);
+    const month = monthLabel(this.ledger.month());
+    return salary > 0
+      ? `= ${percent.format(amount / salary)} dello stipendio previsto di ${month}`
+      : `La percentuale si vede quando ${month} ha uno stipendio previsto.`;
+  });
 
   protected setSavingsPct(text: string): void {
     const pct = Number(text.replace(',', '.'));

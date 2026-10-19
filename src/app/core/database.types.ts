@@ -219,14 +219,14 @@ isOneToOne: false
                   ]
                 },"settings": {
                   Row: {
-                    "created_at": string,"go_live_month": string,"opening_residual_cents": number,"savings_bucket_id": string | null,"savings_pct": number,"user_id": string
+                    "created_at": string,"go_live_month": string,"opening_residual_cents": number,"savings_amount_cents": number | null,"savings_bucket_id": string | null,"savings_pct": number,"user_id": string
                   }
                   ComputedFields: never
                   Insert: {
-                    "created_at"?: string,"go_live_month"?: string,"opening_residual_cents"?: number,"savings_bucket_id"?: string | null,"savings_pct"?: number,"user_id"?: string
+                    "created_at"?: string,"go_live_month"?: string,"opening_residual_cents"?: number,"savings_amount_cents"?: number | null,"savings_bucket_id"?: string | null,"savings_pct"?: number,"user_id"?: string
                   }
                   Update: {
-                    "created_at"?: string,"go_live_month"?: string,"opening_residual_cents"?: number,"savings_bucket_id"?: string | null,"savings_pct"?: number,"user_id"?: string
+                    "created_at"?: string,"go_live_month"?: string,"opening_residual_cents"?: number,"savings_amount_cents"?: number | null,"savings_bucket_id"?: string | null,"savings_pct"?: number,"user_id"?: string
                   }
                   Relationships: [
                     {

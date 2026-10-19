@@ -2,7 +2,7 @@
 -- Dati finti. "Oggi" è fissato con p_today, così i test non scadono.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(24);
+select plan(25);
 
 insert into auth.users (id, email) values
   ('00000000-0000-0000-0000-00000000000a', 'a@example.com'),
@@ -222,6 +222,19 @@ select throws_ok(
      values ('2027-02-01', '30000000-0000-0000-0000-000000000005', '20000000-0000-0000-0000-000000000002', -1) $$,
   '23505', null,
   'una sola previsione per mese, categoria e secchio'
+);
+
+-- Risparmio come importo fisso: vale in ogni mese pianificato dall'avvio, anche senza stipendio.
+update public.settings set savings_amount_cents = 25000;
+select is(
+  (select array[(n -> 'saving_forecast')::bigint, (a -> 'saving_forecast')::bigint,
+                (m -> 'saving_forecast')::bigint, (o -> 'saving_forecast')::bigint]
+   from public.month_overview('2026-11-01', '2027-01-15') n,
+        public.month_overview('2027-04-01', '2027-01-15') a,
+        public.month_overview('2027-03-01', '2027-01-15') m,
+        public.month_overview('2026-10-01', '2027-01-15') o),
+  array[-25000, -25000, 0, 0]::bigint[],
+  'importo fisso: nei mesi pianificati (non in quelli vuoti né prima dell''avvio)'
 );
 
 -- Utente B: non vede e non usa i dati di A.

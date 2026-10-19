@@ -180,7 +180,7 @@ function sign(kind: string): number {
                   </div>
                   @if (editing()) {
                     @if (r.is_default) {
-                      <span class="sub">Predefinita: {{ pct(ledger.settings()?.savings_pct ?? null) }} dello stipendio previsto</span>
+                      <span class="sub">{{ defaultText(r) }}</span>
                     }
                   } @else if (!future()) {
                     <div class="bar" aria-hidden="true">
@@ -494,6 +494,17 @@ export class Month {
   protected fill(r: Row): number {
     if (!r.forecast) return r.actual ? 100 : 0;
     return this.clamp((100 * Math.abs(r.actual)) / Math.abs(r.forecast));
+  }
+
+  /** Spiega il risparmio predefinito: importo fisso (con la % che fa sullo stipendio) o percentuale. */
+  protected defaultText(r: Row): string {
+    const s = this.ledger.settings();
+    if (s?.savings_amount_cents == null) return `Predefinita: ${this.pct(s?.savings_pct ?? null)} dello stipendio previsto`;
+    const salary = this.rows()
+      .filter((x) => x.cat?.is_salary)
+      .reduce((sum, x) => sum + (x.forecast ?? 0), 0);
+    const share = salary > 0 ? `, ${this.pct((-100 * (r.forecast ?? 0)) / salary)} dello stipendio previsto` : '';
+    return `Predefinita: importo fisso${share}`;
   }
 
   protected forecastText(r: Row): string {
