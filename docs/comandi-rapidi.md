@@ -37,7 +37,8 @@ Comandi Rapidi → nuovo comando, chiamalo **Bilancio · Invia**. Nei dettagli d
       - intestazioni: `apikey` = la publishable key, `Content-Type` = `application/json`;
       - corpo richiesta: **File**, con l'elemento della ripetizione.
    2. *Ottieni valore dizionario* `status` dal risultato.
-   3. *Se* il risultato *ha qualsiasi valore*: *Elimina file* (l'elemento della ripetizione, senza conferma).
+   3. *Se* il risultato *ha qualsiasi valore*: *Elimina file* (l'elemento della ripetizione), con "Conferma eliminazione" disattivato.
+      Perché iOS non chieda conferma a ogni notifica serve anche: Impostazioni → App → Comandi Rapidi → Avanzate → **Consenti eliminazione senza conferma**.
 4. Facoltativo, nei primi giorni: *Mostra notifica* con il valore `message` della risposta.
 
 **Se qualcosa va storto:**
