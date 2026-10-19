@@ -198,7 +198,13 @@ export class Transactions {
   }
 
   protected title(t: Transaction): string {
-    return t.merchant_raw ?? t.note ?? this.ledger.categoryById().get(t.category_id ?? '')?.name ?? 'Movimento';
+    return (
+      this.ledger.merchantById().get(t.merchant_id ?? '')?.name ??
+      t.merchant_raw ??
+      t.note ??
+      this.ledger.categoryById().get(t.category_id ?? '')?.name ??
+      'Movimento'
+    );
   }
 
   protected subtitle(t: Transaction): string {

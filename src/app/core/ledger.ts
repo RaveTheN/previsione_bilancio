@@ -1,7 +1,7 @@
 import { computed, effect, inject, Injectable, signal, untracked } from '@angular/core';
 import { Auth } from './auth';
 import { applyPending } from './queue';
-import { Account, Bucket, Category, MonthOverview, Settings, supabase, Tag, Transaction } from './supabase';
+import { Account, Bucket, Category, Merchant, MonthOverview, Settings, supabase, Tag, Transaction } from './supabase';
 import { Sync } from './sync';
 
 /** Data di oggi in ora italiana, "2026-10-16". */
@@ -36,6 +36,7 @@ export class Ledger {
   readonly buckets = signal<Bucket[]>([]);
   readonly accounts = signal<Account[]>([]);
   readonly tags = signal<Tag[]>([]);
+  readonly merchants = signal<Merchant[]>([]);
   readonly settings = signal<Settings | null>(null);
   /** Elementi di "Da rivedere": notifiche non riconosciute e movimenti da controllare. */
   readonly reviewCount = signal(0);
@@ -60,6 +61,7 @@ export class Ledger {
   readonly bucketById = computed(() => new Map(this.buckets().map((b) => [b.id, b])));
   readonly accountById = computed(() => new Map(this.accounts().map((a) => [a.id, a])));
   readonly tagById = computed(() => new Map(this.tags().map((t) => [t.id, t])));
+  readonly merchantById = computed(() => new Map(this.merchants().map((m) => [m.id, m])));
 
   constructor() {
     effect(() => {
@@ -70,7 +72,7 @@ export class Ledger {
   }
 
   async load(month = this.month()): Promise<void> {
-    const [cats, buckets, accounts, tags, settings, rows, overview, events, toCheck] = await Promise.all([
+    const [cats, buckets, accounts, tags, settings, rows, overview, events, toCheck, merchants] = await Promise.all([
       supabase.from('categories').select().order('sort_order'),
       supabase.from('buckets').select().order('sort_order'),
       supabase.from('accounts').select().order('sort_order'),
@@ -82,13 +84,17 @@ export class Ledger {
       // Elenchi di soli id (e non conteggi in HEAD): così il badge resta leggibile anche offline.
       supabase.from('ingest_events').select('id').in('status', ['unrecognized', 'error']).is('transaction_id', null),
       supabase.from('transactions').select('id').or('review_reason.not.is.null,status.eq.pending'),
+      supabase.from('merchants').select().order('name'),
     ]);
-    const error = [cats, buckets, accounts, tags, settings, rows, overview, events, toCheck].find((r) => r.error)?.error;
+    const error = [cats, buckets, accounts, tags, settings, rows, overview, events, toCheck, merchants].find(
+      (r) => r.error,
+    )?.error;
     this.loadError.set(error ? 'Dati non aggiornati: ' + error.message : '');
     if (cats.data) this.categories.set(cats.data);
     if (buckets.data) this.buckets.set(buckets.data);
     if (accounts.data) this.accounts.set(accounts.data);
     if (tags.data) this.tags.set(tags.data);
+    if (merchants.data) this.merchants.set(merchants.data);
     if (!settings.error) this.settings.set(settings.data);
     if (events.data && toCheck.data) this.reviewCount.set(events.data.length + toCheck.data.length);
     // Una risposta lenta di un mese già lasciato non sovrascrive quello mostrato.

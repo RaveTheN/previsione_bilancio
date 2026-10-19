@@ -6,7 +6,7 @@ import { MatSnackBar } from '@angular/material/snack-bar';
 import { Ledger, todayIso } from '../../core/ledger';
 import { parseAmount } from '../../core/money';
 import { PendingOp } from '../../core/queue';
-import { Transaction } from '../../core/supabase';
+import { errorText, supabase, Transaction } from '../../core/supabase';
 import { Sync } from '../../core/sync';
 import { TransferSheet } from '../transfer/transfer';
 
@@ -208,7 +208,7 @@ function editable(t: Transaction): Record<string, unknown> {
 export class QuickAdd {
   protected readonly ledger = inject(Ledger);
   private readonly sync = inject(Sync);
-  private readonly ref = inject(MatBottomSheetRef<QuickAdd, PendingOp[]>);
+  private readonly ref = inject(MatBottomSheetRef<QuickAdd, Saved>);
   protected readonly tx = inject<{ tx?: Transaction }>(MAT_BOTTOM_SHEET_DATA)?.tx;
 
   protected readonly income = signal(false);
@@ -353,7 +353,12 @@ export class QuickAdd {
           ),
         ]
       : [{ table: 'transactions', kind: 'delete', match: { id } }];
-    this.ref.dismiss(undo);
+    // Solo un movimento ancora da assegnare insegna la regola all'esercente:
+    // correggerne uno già assegnato resta un'eccezione.
+    const before = this.tx && this.ledger.categoryById().get(this.tx.category_id ?? '');
+    const wasUnassigned = !before || (before.kind !== 'income' && !this.tx?.bucket_id);
+    const propagate = !!(this.tx?.merchant_id || this.tx?.merchant_raw) && wasUnassigned && !!row.category_id;
+    this.ref.dismiss({ undo, propagate });
   }
 
   protected remove(): void {
@@ -364,8 +369,20 @@ export class QuickAdd {
       this.error.set('Non eliminato: ' + (e instanceof Error ? e.message : String(e)));
       return;
     }
-    this.ref.dismiss(restoreOps(this.tx));
+    this.ref.dismiss({ undo: restoreOps(this.tx), propagate: false });
   }
+}
+
+interface Saved {
+  undo: PendingOp[];
+  /** Dopo l'invio, assegna come questo gli altri movimenti dello stesso esercente. */
+  propagate: boolean;
+}
+
+/** Risultato di assign_like: serve anche così com'è per undo_assign_like. */
+interface AssignResult {
+  name: string;
+  rows: unknown[];
 }
 
 /** Operazioni per ricreare un movimento eliminato, tag compresi. */
@@ -388,13 +405,41 @@ export class QuickAddLauncher {
 
   open(tx?: Transaction): void {
     this.sheet
-      .open<QuickAdd, { tx?: Transaction }, PendingOp[]>(QuickAdd, {
+      .open<QuickAdd, { tx?: Transaction }, Saved>(QuickAdd, {
         data: { tx },
         autoFocus: tx ? 'dialog' : 'input[name=amount]',
       })
       .afterDismissed()
-      .subscribe((undo) => {
-        if (undo) this.confirm(tx ? 'Salvato' : 'Aggiunto', undo);
+      .subscribe((saved) => {
+        if (!saved) return;
+        this.confirm(tx ? 'Salvato' : 'Aggiunto', saved.undo);
+        if (saved.propagate && tx) void this.assignLike(tx.id);
+      });
+  }
+
+  /** "Assegnati anche altri N movimenti di X · Annulla". Annulla tocca solo gli altri, non questo. */
+  private async assignLike(id: string): Promise<void> {
+    await this.sync.flush();
+    // shortcut: offline la propagazione si salta; si rifà assegnando un altro movimento dell'esercente.
+    if (this.sync.ops().length) return;
+    const res = await supabase.rpc('assign_like', { p_transaction_id: id });
+    if (res.error) {
+      this.snackBar.open('Regola dell\'esercente non salvata: ' + errorText(res), 'OK');
+      return;
+    }
+    const result = res.data as AssignResult | null;
+    void this.ledger.load();
+    const n = result?.rows.length ?? 0;
+    if (!result || !n) return;
+    this.snackBar
+      .open(`Assegnat${n === 1 ? 'o' : 'i'} anche ${n === 1 ? 'un altro movimento' : `altri ${n} movimenti`} di ${result.name}`, 'Annulla', {
+        duration: 8000,
+      })
+      .onAction()
+      .subscribe(async () => {
+        const undo = await supabase.rpc('undo_assign_like', { p_result: result as never });
+        if (undo.error) this.snackBar.open('Annullamento non riuscito: ' + errorText(undo), 'OK');
+        void this.ledger.load();
       });
   }
 

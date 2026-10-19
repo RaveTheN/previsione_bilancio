@@ -157,6 +157,52 @@ isOneToOne: false
       referencedColumns: ["id","user_id"]
     }
                   ]
+                },"merchant_aliases": {
+                  Row: {
+                    "created_at": string,"id": string,"ignored": boolean,"match_type": string,"merchant_id": string | null,"pattern": string,"user_id": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "created_at"?: string,"id"?: string,"ignored"?: boolean,"match_type"?: string,"merchant_id"?: string | null,"pattern": string,"user_id"?: string
+                  }
+                  Update: {
+                    "created_at"?: string,"id"?: string,"ignored"?: boolean,"match_type"?: string,"merchant_id"?: string | null,"pattern"?: string,"user_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "merchant_aliases_merchant_id_user_id_fkey"
+      columns: ["merchant_id","user_id"]
+isOneToOne: false
+      referencedRelation: "merchants"
+      referencedColumns: ["id","user_id"]
+    }
+                  ]
+                },"merchants": {
+                  Row: {
+                    "created_at": string,"default_bucket_id": string | null,"default_category_id": string | null,"id": string,"name": string,"user_id": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "created_at"?: string,"default_bucket_id"?: string | null,"default_category_id"?: string | null,"id"?: string,"name": string,"user_id"?: string
+                  }
+                  Update: {
+                    "created_at"?: string,"default_bucket_id"?: string | null,"default_category_id"?: string | null,"id"?: string,"name"?: string,"user_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "merchants_default_bucket_id_user_id_fkey"
+      columns: ["default_bucket_id","user_id"]
+isOneToOne: false
+      referencedRelation: "buckets"
+      referencedColumns: ["id","user_id"]
+    },{
+      foreignKeyName: "merchants_default_category_id_user_id_fkey"
+      columns: ["default_category_id","user_id"]
+isOneToOne: false
+      referencedRelation: "categories"
+      referencedColumns: ["id","user_id"]
+    }
+                  ]
                 },"parse_rules": {
                   Row: {
                     "action": string,"amount_regex": string | null,"app": string,"card_regex": string | null,"created_at": string,"id": string,"match_regex": string,"merchant_regex": string | null,"priority": number,"user_id": string
@@ -233,14 +279,14 @@ isOneToOne: false
                   ]
                 },"transactions": {
                   Row: {
-                    "account_id": string,"amount_cents": number,"booking_date": string,"bucket_id": string | null,"category_id": string | null,"created_at": string,"id": string,"merchant_raw": string | null,"month": string | null,"note": string | null,"occurred_at": string,"review_reason": string | null,"source": string,"status": string,"transfer_group_id": string | null,"user_id": string,"value_date": string | null
+                    "account_id": string,"amount_cents": number,"booking_date": string,"bucket_id": string | null,"category_id": string | null,"created_at": string,"id": string,"merchant_id": string | null,"merchant_raw": string | null,"month": string | null,"note": string | null,"occurred_at": string,"review_reason": string | null,"source": string,"status": string,"transfer_group_id": string | null,"user_id": string,"value_date": string | null
                   }
                   ComputedFields: never
                   Insert: {
-                    "account_id": string,"amount_cents": number,"booking_date"?: string,"bucket_id"?: string | null,"category_id"?: string | null,"created_at"?: string,"id"?: string,"merchant_raw"?: string | null,"month"?: never,"note"?: string | null,"occurred_at"?: string,"review_reason"?: string | null,"source"?: string,"status"?: string,"transfer_group_id"?: string | null,"user_id"?: string,"value_date"?: string | null
+                    "account_id": string,"amount_cents": number,"booking_date"?: string,"bucket_id"?: string | null,"category_id"?: string | null,"created_at"?: string,"id"?: string,"merchant_id"?: string | null,"merchant_raw"?: string | null,"month"?: never,"note"?: string | null,"occurred_at"?: string,"review_reason"?: string | null,"source"?: string,"status"?: string,"transfer_group_id"?: string | null,"user_id"?: string,"value_date"?: string | null
                   }
                   Update: {
-                    "account_id"?: string,"amount_cents"?: number,"booking_date"?: string,"bucket_id"?: string | null,"category_id"?: string | null,"created_at"?: string,"id"?: string,"merchant_raw"?: string | null,"month"?: never,"note"?: string | null,"occurred_at"?: string,"review_reason"?: string | null,"source"?: string,"status"?: string,"transfer_group_id"?: string | null,"user_id"?: string,"value_date"?: string | null
+                    "account_id"?: string,"amount_cents"?: number,"booking_date"?: string,"bucket_id"?: string | null,"category_id"?: string | null,"created_at"?: string,"id"?: string,"merchant_id"?: string | null,"merchant_raw"?: string | null,"month"?: never,"note"?: string | null,"occurred_at"?: string,"review_reason"?: string | null,"source"?: string,"status"?: string,"transfer_group_id"?: string | null,"user_id"?: string,"value_date"?: string | null
                   }
                   Relationships: [
                     {
@@ -261,12 +307,26 @@ isOneToOne: false
 isOneToOne: false
       referencedRelation: "categories"
       referencedColumns: ["id","user_id"]
+    },{
+      foreignKeyName: "transactions_merchant_id_user_id_fkey"
+      columns: ["merchant_id","user_id"]
+isOneToOne: false
+      referencedRelation: "merchants"
+      referencedColumns: ["id","user_id"]
     }
                   ]
                 }
           }
           Views: {
-            "month_actuals": {
+            "merchant_inbox": {
+                  Row: {
+                    "example": string | null,"key": string | null,"last_date": string | null,"n": number | null
+                  }
+                  ComputedFields: never
+                  Relationships: [
+                    
+                  ]
+                },"month_actuals": {
                   Row: {
                     "actual_cents": number | null,"bucket_id": string | null,"category_id": string | null,"inflow": boolean | null,"month": string | null,"n": number | null,"user_id": string | null
                   }
@@ -289,17 +349,29 @@ isOneToOne: false
                 }
           }
           Functions: {
-            "create_transfer":
+            "assign_like":
+{ Args: { "p_transaction_id": string }; Returns: Json
+                           },
+"create_transfer":
 { Args: { "p_amount_cents": number,"p_booking_date"?: string,"p_from": string,"p_id": string,"p_note"?: string,"p_to": string }; Returns: undefined
                            },
 "ingest":
 { Args: { "app": string,"body"?: string,"event_id": string,"occurred_at": string,"subtitle"?: string,"title"?: string,"token": string }; Returns: Json
+                           },
+"link_alias":
+{ Args: { "p_contains": boolean,"p_name": string,"p_pattern": string }; Returns: number
+                           },
+"merchant_key":
+{ Args: { "p_raw": string }; Returns: string
                            },
 "month_overview":
 { Args: { "p_month": string,"p_today"?: string }; Returns: Json
                            },
 "reprocess_event":
 { Args: { "p_event_id": string }; Returns: Json
+                           },
+"undo_assign_like":
+{ Args: { "p_result": Json }; Returns: undefined
                            }
           }
           Enums: {

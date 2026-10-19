@@ -1,6 +1,6 @@
 import { Component, inject } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { Router } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
 import { MatSnackBar } from '@angular/material/snack-bar';
 import { Auth } from '../../core/auth';
@@ -27,7 +27,7 @@ async function clearDataCaches(): Promise<void> {
 
 @Component({
   selector: 'app-settings',
-  imports: [Devices, FormsModule, MatButtonModule],
+  imports: [Devices, FormsModule, MatButtonModule, RouterLink],
   template: `
     <h1>Altro</h1>
 
@@ -42,6 +42,8 @@ async function clearDataCaches(): Promise<void> {
         </div>
       }
     </section>
+
+    <a class="link" routerLink="/rubrica">Rubrica degli esercenti</a>
 
     @if (!online()) {
       <p class="warn" role="status">Sei offline: impostazioni, categorie, conti e dispositivi si modificano solo con la connessione.</p>
@@ -235,6 +237,12 @@ async function clearDataCaches(): Promise<void> {
     }
     .warn {
       color: var(--mat-sys-error);
+    }
+    .link {
+      display: flex;
+      align-items: center;
+      min-height: 48px;
+      font: var(--mat-sys-title-medium);
     }
   `,
 })

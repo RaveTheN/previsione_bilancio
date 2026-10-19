@@ -17,6 +17,9 @@ export type Settings = Tables['settings']['Row'];
 export type ApiToken = Tables['api_tokens']['Row'];
 export type Card = Tables['cards']['Row'];
 export type IngestEvent = Tables['ingest_events']['Row'];
+export type Merchant = Tables['merchants']['Row'];
+export type MerchantAlias = Tables['merchant_aliases']['Row'];
+export type InboxName = Database['public']['Views']['merchant_inbox']['Row'];
 
 /** Riga di month_overview: categoria e secchio, con previsione ed effettivo del mese. */
 export interface MonthLine {
