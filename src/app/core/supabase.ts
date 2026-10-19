@@ -56,6 +56,11 @@ export interface MonthOverview {
   buckets: { bucket_id: string; target_pct: number; forecast_pct: number | null; actual_pct: number | null }[];
 }
 
+/** Bonifici e simili non sono esercenti: si assegnano uno per uno (stessa regola di merchant_key nel database). */
+export function isGenericOperation(merchantRaw: string | null): boolean {
+  return !!merchantRaw && /^\s*bonifico\b/i.test(merchantRaw);
+}
+
 /** Testo dell'errore di una chiamata: status 0 vuol dire che la richiesta non è partita. */
 export function errorText(res: { error: { message: string } | null; status: number }): string {
   return res.status === 0 ? 'nessuna connessione' : (res.error?.message ?? '');

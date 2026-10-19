@@ -1,7 +1,7 @@
 -- Fase 3b: Rubrica e assegnazione per esercente. Nomi finti, formati come quelli reali.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(15);
+select plan(16);
 
 insert into auth.users (id, email) values
   ('00000000-0000-0000-0000-00000000000a', 'a@example.com'),
@@ -34,13 +34,18 @@ insert into public.transactions (id, user_id, account_id, category_id, bucket_id
   ('60000000-0000-0000-0000-000000000005', '00000000-0000-0000-0000-00000000000a', '10000000-0000-0000-0000-000000000001',
    null, null, -250, '2026-10-03', 'SUMUP *NEGOZIO ESEMPIO 2', 'import'),
   ('60000000-0000-0000-0000-000000000006', '00000000-0000-0000-0000-00000000000a', '10000000-0000-0000-0000-000000000001',
-   null, null, -100, '2026-10-04', 'SATISPAY', 'import');
+   null, null, -100, '2026-10-04', 'SATISPAY', 'import'),
+  ('60000000-0000-0000-0000-000000000007', '00000000-0000-0000-0000-00000000000a', '10000000-0000-0000-0000-000000000001',
+   '30000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000001', -6000, '2026-10-05', 'BONIFICO ESEGUITO', 'import'),
+  ('60000000-0000-0000-0000-000000000008', '00000000-0000-0000-0000-00000000000a', '10000000-0000-0000-0000-000000000001',
+   null, null, -6000, '2026-09-05', 'BONIFICO ESEGUITO', 'import');
 
 select is(
   array[public.merchant_key('BAR ESEMPIO MUSIC B PALERMO IT'), public.merchant_key('SumUp  *Negozio esempio di'),
-        public.merchant_key('PAYPAL *SERVIZIO ESEMPIO.IT'), public.merchant_key(' Lidl '), public.merchant_key(null)],
-  array['BAR ESEMPIO MUSIC B', 'NEGOZIO ESEMPIO DI', 'SERVIZIO ESEMPIO.IT', 'LIDL', null],
-  'chiave dell''esercente: maiuscole, spazi, prefissi degli intermediari e città finale'
+        public.merchant_key('PAYPAL *SERVIZIO ESEMPIO.IT'), public.merchant_key(' Lidl '), public.merchant_key(null),
+        public.merchant_key('BONIFICO ESEGUITO'), public.merchant_key('Bonifico ricevuto')],
+  array['BAR ESEMPIO MUSIC B', 'NEGOZIO ESEMPIO DI', 'SERVIZIO ESEMPIO.IT', 'LIDL', null, null, null],
+  'chiave dell''esercente: maiuscole, spazi, prefissi, città finale; i bonifici non sono esercenti'
 );
 
 set local role authenticated;
@@ -120,6 +125,11 @@ select is(
   public.assign_like('60000000-0000-0000-0000-000000000006'),
   null::jsonb,
   'un nome ignorato non crea esercenti né propaga'
+);
+select is(
+  public.assign_like('60000000-0000-0000-0000-000000000007'),
+  null::jsonb,
+  'un bonifico assegnato resta un caso singolo: non propaga e non crea esercenti'
 );
 select is(
   (select count(*) from public.merchants),

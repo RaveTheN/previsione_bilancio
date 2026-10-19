@@ -6,7 +6,7 @@ import { MatSnackBar } from '@angular/material/snack-bar';
 import { Ledger, todayIso } from '../../core/ledger';
 import { parseAmount } from '../../core/money';
 import { PendingOp } from '../../core/queue';
-import { errorText, supabase, Transaction } from '../../core/supabase';
+import { errorText, isGenericOperation, supabase, Transaction } from '../../core/supabase';
 import { Sync } from '../../core/sync';
 import { TransferSheet } from '../transfer/transfer';
 
@@ -55,7 +55,7 @@ function editable(t: Transaction): Record<string, unknown> {
         <span aria-hidden="true">€</span>
       </label>
 
-      @if (tx?.merchant_raw || tx?.merchant_id) {
+      @if (hasMerchant) {
         <label class="merchant">
           Esercente
           <input name="merchant" list="elenco-esercenti" autocomplete="off" placeholder="Il nome che vuoi tu" [(ngModel)]="merchantName" />
@@ -247,6 +247,7 @@ export class QuickAdd {
   protected note = '';
   protected tagsText = '';
   /** Nome scelto per l'esercente del movimento; si salva dopo l'invio (serve la connessione). */
+  protected readonly hasMerchant = !!this.tx?.merchant_id || (!!this.tx?.merchant_raw && !isGenericOperation(this.tx.merchant_raw));
   protected merchantName = this.ledger.merchantById().get(this.tx?.merchant_id ?? '')?.name ?? '';
   private readonly initialMerchantName = this.merchantName;
 
@@ -385,7 +386,7 @@ export class QuickAdd {
     // correggerne uno già assegnato resta un'eccezione.
     const before = this.tx && this.ledger.categoryById().get(this.tx.category_id ?? '');
     const wasUnassigned = !before || (before.kind !== 'income' && !this.tx?.bucket_id);
-    const propagate = !!(this.tx?.merchant_id || this.tx?.merchant_raw) && wasUnassigned && !!row.category_id;
+    const propagate = this.hasMerchant && wasUnassigned && !!row.category_id;
     const name = this.merchantName.trim();
     this.ref.dismiss({ undo, propagate, merchantName: name && name !== this.initialMerchantName ? name : null });
   }

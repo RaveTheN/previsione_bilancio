@@ -4,7 +4,7 @@ import { ActivatedRoute, Router } from '@angular/router';
 import { map } from 'rxjs';
 import { Ledger } from '../../core/ledger';
 import { formatCents } from '../../core/money';
-import { Transaction } from '../../core/supabase';
+import { isGenericOperation, Transaction } from '../../core/supabase';
 import { Sync } from '../../core/sync';
 import { MonthHeader, SwipeMonth } from '../../shared/month-header';
 import { QuickAddLauncher } from '../quick-add/quick-add';
@@ -198,6 +198,8 @@ export class Transactions {
   }
 
   protected title(t: Transaction): string {
+    // Per i bonifici la parte che li distingue è la nota (causale e destinatario).
+    if (isGenericOperation(t.merchant_raw) && t.note) return t.note;
     return (
       this.ledger.merchantById().get(t.merchant_id ?? '')?.name ??
       t.merchant_raw ??
