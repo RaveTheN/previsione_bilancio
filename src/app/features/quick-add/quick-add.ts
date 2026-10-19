@@ -55,6 +55,21 @@ function editable(t: Transaction): Record<string, unknown> {
         <span aria-hidden="true">€</span>
       </label>
 
+      @if (tx?.merchant_raw || tx?.merchant_id) {
+        <label class="merchant">
+          Esercente
+          <input name="merchant" list="elenco-esercenti" autocomplete="off" placeholder="Il nome che vuoi tu" [(ngModel)]="merchantName" />
+          @if (tx?.merchant_raw) {
+            <span class="hint">Dalla banca: {{ tx?.merchant_raw }}</span>
+          }
+        </label>
+        <datalist id="elenco-esercenti">
+          @for (m of ledger.merchants(); track m.id) {
+            <option [value]="m.name"></option>
+          }
+        </datalist>
+      }
+
       <div class="chips" role="group" aria-label="Categoria">
         @for (c of shownCategories(); track c.id) {
           <button type="button" [class.on]="categoryId() === c.id" [attr.aria-pressed]="categoryId() === c.id" (click)="pickCategory(c.id)">
@@ -161,12 +176,22 @@ function editable(t: Transaction): Record<string, unknown> {
       flex-wrap: wrap;
       gap: 8px;
     }
-    details label {
+    details label,
+    .merchant {
       display: grid;
       gap: 4px;
       margin-top: 12px;
       font: var(--mat-sys-label-large);
     }
+    .merchant {
+      margin-top: 0;
+    }
+    .hint {
+      font: var(--mat-sys-body-small);
+      color: var(--mat-sys-on-surface-variant);
+      overflow-wrap: anywhere;
+    }
+    .merchant input,
     details input,
     details select {
       min-height: 44px;
@@ -221,6 +246,9 @@ export class QuickAdd {
   protected date = todayIso();
   protected note = '';
   protected tagsText = '';
+  /** Nome scelto per l'esercente del movimento; si salva dopo l'invio (serve la connessione). */
+  protected merchantName = this.ledger.merchantById().get(this.tx?.merchant_id ?? '')?.name ?? '';
+  private readonly initialMerchantName = this.merchantName;
 
   protected readonly amountCents = computed(() => parseAmount(this.amountText()));
   protected readonly activeAccounts = computed(() => this.ledger.accounts().filter((a) => !a.archived));
@@ -358,7 +386,8 @@ export class QuickAdd {
     const before = this.tx && this.ledger.categoryById().get(this.tx.category_id ?? '');
     const wasUnassigned = !before || (before.kind !== 'income' && !this.tx?.bucket_id);
     const propagate = !!(this.tx?.merchant_id || this.tx?.merchant_raw) && wasUnassigned && !!row.category_id;
-    this.ref.dismiss({ undo, propagate });
+    const name = this.merchantName.trim();
+    this.ref.dismiss({ undo, propagate, merchantName: name && name !== this.initialMerchantName ? name : null });
   }
 
   protected remove(): void {
@@ -369,7 +398,7 @@ export class QuickAdd {
       this.error.set('Non eliminato: ' + (e instanceof Error ? e.message : String(e)));
       return;
     }
-    this.ref.dismiss({ undo: restoreOps(this.tx), propagate: false });
+    this.ref.dismiss({ undo: restoreOps(this.tx), propagate: false, merchantName: null });
   }
 }
 
@@ -377,6 +406,8 @@ interface Saved {
   undo: PendingOp[];
   /** Dopo l'invio, assegna come questo gli altri movimenti dello stesso esercente. */
   propagate: boolean;
+  /** Nome dell'esercente scritto nel movimento, se cambiato. */
+  merchantName: string | null;
 }
 
 /** Risultato di assign_like: serve anche così com'è per undo_assign_like. */
@@ -413,15 +444,43 @@ export class QuickAddLauncher {
       .subscribe((saved) => {
         if (!saved) return;
         this.confirm(tx ? 'Salvato' : 'Aggiunto', saved.undo);
-        if (saved.propagate && tx) void this.assignLike(tx.id);
+        if (tx && (saved.propagate || saved.merchantName)) void this.afterSave(tx, saved);
       });
+  }
+
+  /** Dopo l'invio del movimento: nome dell'esercente, poi regola e movimenti simili. */
+  private async afterSave(tx: Transaction, saved: Saved): Promise<void> {
+    await this.sync.flush();
+    // shortcut: offline si salta; nome e regola si rifanno riaprendo il movimento quando torni online.
+    if (this.sync.ops().length) {
+      this.snackBar.open('Offline: esercente e movimenti simili non aggiornati', 'OK', { duration: 5000 });
+      return;
+    }
+    if (saved.merchantName && !(await this.nameMerchant(tx, saved.merchantName))) return;
+    if (saved.propagate) await this.assignLike(tx.id);
+    else void this.ledger.load();
+  }
+
+  /** Rinomina l'esercente del movimento, oppure lo crea (o lo trova per nome) e collega il nome grezzo. */
+  private async nameMerchant(tx: Transaction, name: string): Promise<boolean> {
+    if (tx.merchant_id) {
+      const res = await supabase.from('merchants').update({ name }).eq('id', tx.merchant_id);
+      if (res.error) {
+        this.snackBar.open(res.error.code === '23505' ? 'Esiste già un esercente con questo nome' : 'Nome non salvato: ' + errorText(res), 'OK');
+      }
+      return !res.error;
+    }
+    const key = await supabase.rpc('merchant_key', { p_raw: tx.merchant_raw ?? '' });
+    const res = key.error ? key : await supabase.rpc('link_alias', { p_pattern: key.data ?? '', p_contains: false, p_name: name });
+    if (res.error) {
+      this.snackBar.open('Esercente non salvato: ' + errorText(res), 'OK');
+      return false;
+    }
+    return true;
   }
 
   /** "Assegnati anche altri N movimenti di X · Annulla". Annulla tocca solo gli altri, non questo. */
   private async assignLike(id: string): Promise<void> {
-    await this.sync.flush();
-    // shortcut: offline la propagazione si salta; si rifà assegnando un altro movimento dell'esercente.
-    if (this.sync.ops().length) return;
     const res = await supabase.rpc('assign_like', { p_transaction_id: id });
     if (res.error) {
       this.snackBar.open('Regola dell\'esercente non salvata: ' + errorText(res), 'OK');
