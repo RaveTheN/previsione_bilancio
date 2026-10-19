@@ -65,7 +65,7 @@ import { errorText, InboxName, Merchant, MerchantAlias, supabase } from '../../c
 
       <section>
         <h2>Esercenti</h2>
-        <p class="note">La regola vale per i movimenti nuovi e per quelli ancora da assegnare: quelli già assegnati non cambiano.</p>
+        <p class="note">Categoria e secchio valgono subito per i movimenti ancora da assegnare e per quelli nuovi: quelli già assegnati non cambiano.</p>
         <ul>
           @for (m of ledger.merchants(); track m.id) {
             <li>
@@ -78,7 +78,7 @@ import { errorText, InboxName, Merchant, MerchantAlias, supabase } from '../../c
                   }
                 </select>
                 @if (ledger.categoryById().get(m.default_category_id ?? '')?.kind !== 'income') {
-                  <select aria-label="Secchio predefinito" (change)="update(m, { default_bucket_id: value($event) || null })">
+                  <select aria-label="Secchio predefinito" (change)="setBucket(m, value($event))">
                     <option value="" [selected]="!m.default_bucket_id">Nessun secchio</option>
                     @for (b of ledger.buckets(); track b.id) {
                       <option [value]="b.id" [selected]="b.id === m.default_bucket_id">{{ b.name }}</option>
@@ -292,12 +292,48 @@ export class Rubrica implements OnInit {
   protected async setCategory(m: Merchant, categoryId: string): Promise<void> {
     // Un'entrata non ha secchio.
     const income = this.ledger.categoryById().get(categoryId)?.kind === 'income';
-    await this.update(m, { default_category_id: categoryId || null, ...(income ? { default_bucket_id: null } : {}) });
+    const bucketId = income ? null : m.default_bucket_id;
+    if (await this.update(m, { default_category_id: categoryId || null, default_bucket_id: bucketId })) {
+      await this.applyRule(m, categoryId || null, bucketId);
+    }
   }
 
-  protected async update(m: Merchant, patch: Partial<Merchant>): Promise<void> {
+  protected async setBucket(m: Merchant, bucketId: string): Promise<void> {
+    if (await this.update(m, { default_bucket_id: bucketId || null })) {
+      await this.applyRule(m, m.default_category_id, bucketId || null);
+    }
+  }
+
+  /** La regola completa i movimenti dell'esercente ancora da assegnare, senza toccare gli altri. */
+  private async applyRule(m: Merchant, categoryId: string | null, bucketId: string | null): Promise<void> {
+    if (!categoryId) return;
+    const withCategory = await supabase
+      .from('transactions')
+      .update({ category_id: categoryId })
+      .eq('merchant_id', m.id)
+      .is('category_id', null)
+      .select('id');
+    // Poi il secchio, dove manca, sui movimenti di questa categoria (compresi quelli appena aggiornati).
+    const withBucket = bucketId
+      ? await supabase
+          .from('transactions')
+          .update({ bucket_id: bucketId })
+          .eq('merchant_id', m.id)
+          .eq('category_id', categoryId)
+          .is('bucket_id', null)
+          .select('id')
+      : { data: [], error: null, status: 200 };
+    const error = withCategory.error ? withCategory : withBucket.error ? withBucket : null;
+    if (error) this.snackBar.open('Movimenti non aggiornati: ' + errorText(error), 'OK');
+    const n = new Set([...(withCategory.data ?? []), ...(withBucket.data ?? [])].map((r) => r.id)).size;
+    if (n) this.snackBar.open(`${m.name}: assegnat${n === 1 ? 'o 1 movimento' : `i ${n} movimenti`}`, 'OK', { duration: 4000 });
+    void this.load();
+  }
+
+  protected async update(m: Merchant, patch: Partial<Merchant>): Promise<boolean> {
     const res = await supabase.from('merchants').update(patch).eq('id', m.id);
     this.done(res, res.error?.code === '23505' ? 'Esiste già un esercente con questo nome' : 'Non salvato');
+    return !res.error;
   }
 
   private done(res: { error: { message: string } | null; status: number }, message: string): void {
