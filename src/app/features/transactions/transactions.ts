@@ -4,10 +4,24 @@ import { ActivatedRoute, Router } from '@angular/router';
 import { map } from 'rxjs';
 import { Ledger } from '../../core/ledger';
 import { formatCents } from '../../core/money';
-import { isGenericOperation, Transaction } from '../../core/supabase';
+import { Transaction } from '../../core/supabase';
 import { Sync } from '../../core/sync';
 import { MonthHeader, SwipeMonth } from '../../shared/month-header';
 import { QuickAddLauncher } from '../quick-add/quick-add';
+
+/** Titolo di un movimento nelle liste. */
+export function movementTitle(t: Transaction, ledger: Ledger): string {
+  // Per i bonifici la parte che li distingue è la nota (causale e destinatario); per gli
+  // addebiti PayPal la nota è solo un numero, quindi resta il nome grezzo.
+  if (/^\s*bonifico\b/i.test(t.merchant_raw ?? '') && t.note) return t.note;
+  return (
+    ledger.merchantById().get(t.merchant_id ?? '')?.name ??
+    t.merchant_raw ??
+    t.note ??
+    ledger.categoryById().get(t.category_id ?? '')?.name ??
+    'Movimento'
+  );
+}
 
 @Component({
   selector: 'app-transactions',
@@ -198,15 +212,7 @@ export class Transactions {
   }
 
   protected title(t: Transaction): string {
-    // Per i bonifici la parte che li distingue è la nota (causale e destinatario).
-    if (isGenericOperation(t.merchant_raw) && t.note) return t.note;
-    return (
-      this.ledger.merchantById().get(t.merchant_id ?? '')?.name ??
-      t.merchant_raw ??
-      t.note ??
-      this.ledger.categoryById().get(t.category_id ?? '')?.name ??
-      'Movimento'
-    );
+    return movementTitle(t, this.ledger);
   }
 
   protected subtitle(t: Transaction): string {

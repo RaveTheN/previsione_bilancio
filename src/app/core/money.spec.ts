@@ -1,4 +1,4 @@
-import { diffTone, formatCents, parseAmount, parseSignedAmount } from './money';
+import { deviation, diffTone, formatCents, parseAmount, parseSignedAmount } from './money';
 
 describe('parseAmount', () => {
   it.each([
@@ -49,6 +49,23 @@ describe('diffTone', () => {
     ['saving', 0, 7000, 'worse'],
   ])('%s: previsto %i, effettivo %i → %s', (kind, forecast, actual, tone) => {
     expect(diffTone(kind as string, forecast as number, actual as number)).toBe(tone);
+  });
+});
+
+describe('deviation', () => {
+  it.each([
+    ['expense', -10000, -10500, 'even'],
+    ['expense', -10000, -9500, 'even'],
+    ['expense', -10000, -11000, 'worse'],
+    ['expense', -10000, -12000, 'much-worse'],
+    ['expense', -10000, -9000, 'better'],
+    ['expense', -10000, -5000, 'much-better'],
+    ['income', 100000, 110000, 'better'],
+    ['saving', -30000, -36000, 'much-better'],
+    ['expense', 0, -500, 'much-worse'],
+    ['expense', 0, 0, 'even'],
+  ])('%s: previsto %i, effettivo %i → %s', (kind, forecast, actual, level) => {
+    expect(deviation(kind as string, forecast as number, actual as number)).toBe(level);
   });
 });
 

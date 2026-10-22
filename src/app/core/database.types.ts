@@ -372,6 +372,9 @@ isOneToOne: false
                            },
 "undo_assign_like":
 { Args: { "p_result": Json }; Returns: undefined
+                           },
+"year_grid":
+{ Args: { "p_today"?: string,"p_year": number }; Returns: Json
                            }
           }
           Enums: {

@@ -46,3 +46,15 @@ export function diffTone(kind: string, forecast: number, actual: number): 'bette
   const diff = (actual - forecast) * (kind === 'saving' ? -1 : 1);
   return diff > 0 ? 'better' : diff < 0 ? 'worse' : 'even';
 }
+
+export type Deviation = 'even' | 'better' | 'worse' | 'much-better' | 'much-worse';
+
+/** Colori della griglia, stessa regola di diffTone: entro ±5% in linea, 5–15% lieve, oltre il 15% forte. */
+export function deviation(kind: string, forecast: number, actual: number): Deviation {
+  const diff = (actual - forecast) * (kind === 'saving' ? -1 : 1);
+  const ratio = forecast ? Math.abs(diff / forecast) : diff ? Infinity : 0;
+  if (ratio <= 0.05) return 'even';
+  const strong = ratio > 0.15;
+  if (diff > 0) return strong ? 'much-better' : 'better';
+  return strong ? 'much-worse' : 'worse';
+}

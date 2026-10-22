@@ -43,9 +43,11 @@ insert into public.transactions (id, user_id, account_id, category_id, bucket_id
 select is(
   array[public.merchant_key('BAR ESEMPIO MUSIC B PALERMO IT'), public.merchant_key('SumUp  *Negozio esempio di'),
         public.merchant_key('PAYPAL *SERVIZIO ESEMPIO.IT'), public.merchant_key(' Lidl '), public.merchant_key(null),
-        public.merchant_key('BONIFICO ESEGUITO'), public.merchant_key('Bonifico ricevuto')],
-  array['BAR ESEMPIO MUSIC B', 'NEGOZIO ESEMPIO DI', 'SERVIZIO ESEMPIO.IT', 'LIDL', null, null, null],
-  'chiave dell''esercente: maiuscole, spazi, prefissi, città finale; i bonifici non sono esercenti'
+        public.merchant_key('BONIFICO ESEGUITO'), public.merchant_key('Bonifico ricevuto'),
+        public.merchant_key('ADDEBITO PayPal Europe S.a.r.l. et Cie S.C.A'), public.merchant_key('ADDEBITO Satispay Europe S.A.')],
+  array['BAR ESEMPIO MUSIC B', 'NEGOZIO ESEMPIO DI', 'SERVIZIO ESEMPIO.IT', 'LIDL', null, null, null, null,
+        'ADDEBITO SATISPAY EUROPE S.A.'],
+  'chiave dell''esercente: maiuscole, spazi, prefissi, città finale; bonifici e addebiti PayPal non sono esercenti'
 );
 
 set local role authenticated;

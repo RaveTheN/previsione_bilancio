@@ -18,6 +18,15 @@ import { QuickAddLauncher } from '../quick-add/quick-add';
         </svg>
         <span>Mese</span>
       </a>
+      <!-- La griglia serve su PC e iPad: su schermo stretto c'è la vista mese. -->
+      <a class="wide" routerLink="/anno" routerLinkActive="active">
+        <svg viewBox="0 -960 960 960" aria-hidden="true">
+          <path
+            d="M200-120q-33 0-56.5-23.5T120-200v-560q0-33 23.5-56.5T200-840h560q33 0 56.5 23.5T840-760v560q0 33-23.5 56.5T760-120H200Zm0-80h133v-133H200v133Zm213 0h134v-133H413v133Zm214 0h133v-133H627v133ZM200-413h133v-134H200v134Zm213 0h134v-134H413v134Zm214 0h133v-134H627v134ZM200-627h133v-133H200v133Zm213 0h134v-133H413v133Zm214 0h133v-133H627v133Z"
+          />
+        </svg>
+        <span>Anno</span>
+      </a>
       <a routerLink="/movimenti" routerLinkActive="active">
         <svg viewBox="0 -960 960 960" aria-hidden="true">
           <path
@@ -138,7 +147,17 @@ import { QuickAddLauncher } from '../quick-add/quick-add';
       background: var(--mat-sys-error-container);
       color: var(--mat-sys-on-error-container);
     }
+    /* La griglia usa tutta la larghezza. */
+    main:has(app-year) {
+      max-width: none;
+    }
+    .wide {
+      display: none;
+    }
     @media (min-width: 840px) {
+      .wide {
+        display: grid;
+      }
       :host {
         grid-template-columns: auto 1fr;
         grid-template-rows: none;

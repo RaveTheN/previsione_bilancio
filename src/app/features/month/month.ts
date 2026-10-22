@@ -4,9 +4,10 @@ import { RouterLink } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
 import { MatSnackBar } from '@angular/material/snack-bar';
 import { currentMonth, Ledger, monthLabel, shiftMonth } from '../../core/ledger';
-import { centsToInput, diffTone, formatCents, parseSignedAmount } from '../../core/money';
+import { copyForecast, forecastToInput, inputToForecast, signedText, writeForecast } from '../../core/budget';
+import { diffTone, formatCents } from '../../core/money';
 import { onlineSignal } from '../../core/online';
-import { Category, errorText, MonthLine, supabase } from '../../core/supabase';
+import { Category, errorText, MonthLine } from '../../core/supabase';
 import { Sync } from '../../core/sync';
 import { MonthHeader, SwipeMonth } from '../../shared/month-header';
 import { QuickAddLauncher } from '../quick-add/quick-add';
@@ -24,14 +25,8 @@ interface Group {
   actual: number;
 }
 
-const ON_CONFLICT = 'user_id,month,category_id,bucket_id';
 const percent = new Intl.NumberFormat('it-IT', { style: 'percent', maximumFractionDigits: 1 });
 const TONE_WORD = { better: 'meglio', worse: 'peggio', even: 'in linea' };
-
-/** Nella previsione si scrivono importi positivi: il segno lo decide il tipo di categoria. */
-function sign(kind: string): number {
-  return kind === 'income' ? 1 : -1;
-}
 
 @Component({
   selector: 'app-month',
@@ -508,32 +503,31 @@ export class Month {
   }
 
   protected forecastText(r: Row): string {
-    return r.forecast === null || r.is_default ? '' : centsToInput(r.forecast * sign(r.kind));
+    return forecastToInput(r.forecast, r.kind, r.is_default);
   }
 
   protected placeholder(r: Row): string {
-    return r.is_default && r.forecast !== null ? centsToInput(r.forecast * sign(r.kind)) : 'nessuna';
+    return r.is_default && r.forecast !== null ? signedText(r.forecast, r.kind) : 'nessuna';
   }
 
   /** Campo vuoto = nessuna previsione; per il risparmio torna quella predefinita. */
   protected async setForecast(r: Row, e: Event): Promise<void> {
-    const text = (e.target as HTMLInputElement).value.trim();
-    const cents = text ? parseSignedAmount(text) : null;
-    if (text && cents === null) {
+    const amount = inputToForecast((e.target as HTMLInputElement).value, r.kind);
+    if (amount === undefined) {
       this.snackBar.open('Importo non valido', 'OK', { duration: 4000 });
       return;
     }
-    await this.write(r.category_id!, r.bucket_id, cents === null ? null : cents * sign(r.kind));
+    await this.write(r.category_id!, r.bucket_id, amount);
   }
 
   protected async addLine(): Promise<void> {
     const cat = this.ledger.categoryById().get(this.newCategory());
-    const cents = parseSignedAmount(this.newAmount);
-    if (!cat || cents === null || (cat.kind !== 'income' && !this.newBucket)) {
+    const amount = cat ? inputToForecast(this.newAmount, cat.kind) : undefined;
+    if (!cat || amount == null || (cat.kind !== 'income' && !this.newBucket)) {
       this.snackBar.open('Scegli categoria, secchio e un importo valido', 'OK', { duration: 4000 });
       return;
     }
-    if (await this.write(cat.id, cat.kind === 'income' ? null : this.newBucket, cents * sign(cat.kind))) {
+    if (await this.write(cat.id, cat.kind === 'income' ? null : this.newBucket, amount)) {
       this.newAmount = '';
     }
   }
@@ -542,7 +536,9 @@ export class Month {
   protected async copy(): Promise<void> {
     const from = this.ledger.month();
     const until = this.copyUntil;
-    const lines = this.rows().filter((r) => r.forecast !== null && !r.is_default && r.category_id);
+    const lines = this.rows()
+      .filter((r) => r.forecast !== null && !r.is_default && r.category_id)
+      .map((r) => ({ category_id: r.category_id!, bucket_id: r.bucket_id, forecast: r.forecast! }));
     if (!until || until <= from) return;
     if (!lines.length) {
       this.snackBar.open('Questo mese non ha previsioni da copiare', 'OK', { duration: 4000 });
@@ -550,29 +546,10 @@ export class Month {
     }
     this.busy.set(true);
     try {
-      const existing = await supabase
-        .from('budget_lines')
-        .select('id', { count: 'exact', head: true })
-        .gt('month', from)
-        .lte('month', until);
-      if (existing.error) {
-        this.done(existing, 'Copia non riuscita');
-        return;
-      }
-      const range = `${monthLabel(shiftMonth(from, 1))} – ${monthLabel(until)}`;
-      if (
-        existing.count &&
-        !confirm(`In ${range} ci sono già ${existing.count} righe di previsione: quelle con la stessa categoria e lo stesso secchio verranno sostituite. Continuare?`)
-      ) {
-        return;
-      }
-      const months = this.nextMonths().filter((m) => m <= until);
-      const rows = months.flatMap((month) =>
-        lines.map((l) => ({ month, category_id: l.category_id!, bucket_id: l.bucket_id, amount_cents: l.forecast! })),
-      );
-      if (this.done(await supabase.from('budget_lines').upsert(rows, { onConflict: ON_CONFLICT }), 'Copia non riuscita')) {
+      const res = await copyForecast(from, until, lines);
+      if (res !== 'cancelled' && this.done(res, 'Copia non riuscita')) {
         this.copyUntil = '';
-        this.snackBar.open(`Previsione copiata in ${range}`, 'OK', { duration: 4000 });
+        this.snackBar.open(`Previsione copiata fino a ${monthLabel(until)}`, 'OK', { duration: 4000 });
       }
     } finally {
       this.busy.set(false);
@@ -580,13 +557,7 @@ export class Month {
   }
 
   private async write(categoryId: string, bucketId: string | null, amount: number | null): Promise<boolean> {
-    const month = this.ledger.month();
-    if (amount !== null) {
-      const row = { month, category_id: categoryId, bucket_id: bucketId, amount_cents: amount };
-      return this.done(await supabase.from('budget_lines').upsert(row, { onConflict: ON_CONFLICT }), 'Previsione non salvata');
-    }
-    const q = supabase.from('budget_lines').delete().eq('month', month).eq('category_id', categoryId);
-    return this.done(await (bucketId ? q.eq('bucket_id', bucketId) : q.is('bucket_id', null)), 'Previsione non eliminata');
+    return this.done(await writeForecast(this.ledger.month(), categoryId, bucketId, amount), 'Previsione non salvata');
   }
 
   private done(res: { error: { message: string } | null; status: number }, message: string): boolean {

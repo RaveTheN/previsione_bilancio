@@ -13,6 +13,7 @@ export const routes: Routes = [
         path: 'movimenti',
         loadComponent: () => import('./features/transactions/transactions').then((m) => m.Transactions),
       },
+      { path: 'anno', loadComponent: () => import('./features/year/year').then((m) => m.Year) },
       { path: 'da-rivedere', loadComponent: () => import('./features/review/review').then((m) => m.Review) },
       { path: 'rubrica', loadComponent: () => import('./features/rubrica/rubrica').then((m) => m.Rubrica) },
       { path: 'altro', loadComponent: () => import('./features/settings/settings').then((m) => m.Settings) },
