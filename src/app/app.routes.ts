@@ -15,6 +15,7 @@ export const routes: Routes = [
       },
       { path: 'anno', loadComponent: () => import('./features/year/year').then((m) => m.Year) },
       { path: 'da-rivedere', loadComponent: () => import('./features/review/review').then((m) => m.Review) },
+      { path: 'ricorrenti', loadComponent: () => import('./features/recurring/recurring').then((m) => m.Recurring) },
       { path: 'rubrica', loadComponent: () => import('./features/rubrica/rubrica').then((m) => m.Rubrica) },
       { path: 'altro', loadComponent: () => import('./features/settings/settings').then((m) => m.Settings) },
       { path: '', pathMatch: 'full', redirectTo: 'mese' },

@@ -42,7 +42,8 @@ Dopo il ripristino cancella la cartella, con i file `.sql` estratti e la chiave 
 Note dalla prova del 17/10/2026:
 
 - se `roles.sql` si ferma su `GRANT SET ON PARAMETER "log_min_messages"`, commenta quella riga: il permesso è già presente nei progetti nuovi;
-- il trigger dell'opzione "Enable automatic RLS" non è nel backup: in un ripristino d'emergenza su un progetto nuovo va riattivata a mano dalla dashboard (le migrazioni attivano comunque la RLS su ogni tabella).
+- il trigger dell'opzione "Enable automatic RLS" non è nel backup: in un ripristino d'emergenza su un progetto nuovo va riattivata a mano dalla dashboard (le migrazioni attivano comunque la RLS su ogni tabella);
+- il job notturno delle ricorrenti non è nel backup (lo schema `cron` non viene salvato): dopo un ripristino d'emergenza riattivalo nello SQL Editor con `create extension if not exists pg_cron with schema pg_catalog;` e `select cron.schedule('ricorrenti', '15 2 * * *', 'select private.run_recurring()');`. Le scadenze saltate nel frattempo le recupera da solo.
 
 La procedura segue la [guida ufficiale Supabase](https://supabase.com/docs/guides/platform/migrating-within-supabase/backup-restore). Se compaiono errori su `supabase_admin` o `cli_login_postgres`, la guida indica quali righe commentare.
 

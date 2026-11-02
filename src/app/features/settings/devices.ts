@@ -57,7 +57,7 @@ async function newToken(): Promise<{ token: string; hash: string }> {
       </ul>
       <form class="row" (ngSubmit)="addCard()">
         <input name="last4" inputmode="numeric" maxlength="4" placeholder="1234" aria-label="Ultime 4 cifre" [(ngModel)]="last4" />
-        <select name="cardAccount" aria-label="Conto" [(ngModel)]="cardAccount">
+        <select name="cardAccount" aria-label="Conto" [ngModel]="cardAccount || spendable()[0]?.id" (ngModelChange)="cardAccount = $event">
           @for (a of spendable(); track a.id) {
             <option [value]="a.id">{{ a.name }}</option>
           }

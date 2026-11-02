@@ -493,6 +493,7 @@ export class Month {
 
   /** Spiega il risparmio predefinito: importo fisso (con la % che fa sullo stipendio) o percentuale. */
   protected defaultText(r: Row): string {
+    if (r.kind !== 'saving') return 'Predefinita: somma delle ricorrenti';
     const s = this.ledger.settings();
     if (s?.savings_amount_cents == null) return `Predefinita: ${this.pct(s?.savings_pct ?? null)} dello stipendio previsto`;
     const salary = this.rows()

@@ -1,17 +1,19 @@
 """Import dei dati in Bilancio (solo libreria standard).
 
 Uso (dalla cartella del progetto):
-  python tools/import/import.py bbva 12-10-2026.xlsx --saldo 939.88 --al 2026-10-12
+  python tools/import/import.py bbva estratto.xlsx --saldo 1234.56 --al 2026-10-12
 
 Scrive tools/import/out/estratto-bbva.sql e stampa un rapporto.
 Il file SQL va eseguito nello SQL Editor di Supabase dopo docs/setup-iniziale.sql:
-è idempotente (id stabili, on conflict do nothing) e non tocca le assegnazioni manuali.
+si può rieseguire, non tocca le assegnazioni manuali e non duplica i movimenti già arrivati
+da notifiche, inserimenti a mano o ricorrenti (vedi private.import_statement).
 I file di origine e gli output contengono dati personali: non vanno mai nel repo.
 """
 
 import argparse
 import collections
 import datetime as dt
+import json
 import re
 import uuid
 import zipfile
@@ -65,6 +67,21 @@ def clean(text):
     return re.sub(r"\s+", " ", text or "").strip() or None
 
 
+def luhn(digits):
+    total = 0
+    for i, d in enumerate(reversed(digits)):
+        n = int(d) * (2 if i % 2 else 1)
+        total += n - 9 if n > 9 else n
+    return total % 10 == 0
+
+
+def mask_card(text):
+    """L'estratto può riportare il numero completo della carta: nel database restano le ultime 4 cifre."""
+    if text is None:
+        return None
+    return re.sub(r"\b\d{13,19}\b", lambda m: "****" + m[0][-4:] if luhn(m[0]) else m[0], text)
+
+
 def stable_id(*parts):
     return str(uuid.uuid5(ID_NAMESPACE, "|".join(str(p) for p in parts)))
 
@@ -89,6 +106,10 @@ def self_check():
     else:
         raise AssertionError("formato italiano non doveva essere accettato")
     assert stable_id("a", 1) == stable_id("a", 1) != stable_id("a", 2)
+    assert mask_card("ARROTONDAMENTO 4242424242424242 fine") == "ARROTONDAMENTO ****4242 fine"
+    assert mask_card("ADDEBITO Nº 1234567812345678") == "ADDEBITO Nº 1234567812345678"  # non è una carta
+    assert mask_card("IT60X0542811101000000123456") == "IT60X0542811101000000123456"  # un IBAN resta
+    assert mask_card(None) is None
 
 
 def bbva(args):
@@ -110,7 +131,7 @@ def bbva(args):
         seen[raw] += 1
         key = ("bbva",) + raw + (seen[raw],)  # due righe identiche restano distinte
         value_date, booking_date = parse_date(raw[0]), parse_date(raw[1])
-        causale, movimento = clean(raw[2]), clean(raw[3])
+        causale, movimento = mask_card(clean(raw[2])), mask_card(clean(raw[3]))
         beneficiario = None if clean(raw[4]) in (None, "- -", "-") else clean(raw[4])
         cents = parse_bbva_amount(raw[5])
         total += cents
@@ -136,41 +157,15 @@ def bbva(args):
     assert sum(r[4] for r in out if r[1] == "BBVA") == total, "somma del conto principale diversa dall'estratto"
 
     OUT.mkdir(exist_ok=True)
-    values = ",\n".join(
-        "  (" + ", ".join(q(x) for x in (r[0], r[1], r[2], r[3], r[4], r[5].isoformat(), r[6].isoformat(), r[7], r[8], r[9])) + ")"
-        for r in out
+    fields = ("id", "account", "category", "bucket", "amount", "booking_date", "value_date", "merchant", "note", "grp")
+    payload = json.dumps(
+        [dict(zip(fields, (*r[:5], r[5].isoformat(), r[6].isoformat(), *r[7:]))) for r in out],
+        ensure_ascii=False,
     )
-    sql = f"""-- Generato da tools/import/import.py (estratto BBVA): idempotente. Contiene dati personali.
-begin;
-
-do $$
-begin
-  if (select count(*) from auth.users) <> 1 then
-    raise exception 'Atteso esattamente un utente';
-  end if;
-  if (select count(*) from public.accounts where name in ('BBVA', 'Salvadanaio')) <> 2
-     or not exists (select 1 from public.categories where name = 'Risparmio')
-     or not exists (select 1 from public.buckets where name = 'Future me') then
-    raise exception 'Esegui prima docs/setup-iniziale.sql';
-  end if;
-end $$;
-
-insert into public.transactions
-  (id, user_id, account_id, category_id, bucket_id, amount_cents, occurred_at,
-   booking_date, value_date, merchant_raw, note, source, transfer_group_id)
-select v.id::uuid, u.id, a.id, c.id, b.id, v.amount::bigint,
-  (v.value_date::date + time '12:00') at time zone 'Europe/Rome',
-  v.booking_date::date, v.value_date::date, v.merchant, v.note, 'import', v.grp::uuid
-from (values
-{values}
-) as v (id, account, category, bucket, amount, booking_date, value_date, merchant, note, grp)
-cross join auth.users u
-join public.accounts a on a.user_id = u.id and a.name = v.account
-left join public.categories c on c.user_id = u.id and c.name = v.category
-left join public.buckets b on b.user_id = u.id and b.name = v.bucket
-on conflict (id) do nothing;
-
-commit;
+    # La sottoquery su auth.users dà errore se gli utenti non sono esattamente uno.
+    sql = f"""-- Generato da tools/import/import.py (estratto BBVA): si può rieseguire. Contiene dati personali.
+-- Il risultato dice quanti movimenti sono nuovi, uniti a quelli già registrati, o già importati.
+select private.import_statement((select id from auth.users), {q(payload)}::jsonb) as esito;
 """
     target = OUT / "estratto-bbva.sql"
     target.write_text(sql, encoding="utf-8")

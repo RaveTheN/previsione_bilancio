@@ -76,6 +76,8 @@ import { QuickAddLauncher } from '../quick-add/quick-add';
     }
     main {
       display: grid;
+      /* Senza minmax un contenuto largo allargherebbe la colonna oltre lo schermo. */
+      grid-template-columns: minmax(0, 1fr);
       align-content: start;
       gap: 12px;
       width: 100%;

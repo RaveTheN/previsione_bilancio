@@ -217,6 +217,38 @@ isOneToOne: false
                   Relationships: [
                     
                   ]
+                },"recurring_rules": {
+                  Row: {
+                    "account_id": string,"amount_cents": number,"bucket_id": string | null,"cancel_by": string | null,"category_id": string,"created_at": string,"end_date": string | null,"frequency": string,"generated_until": string,"id": string,"name": string,"start_date": string,"user_id": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "account_id": string,"amount_cents": number,"bucket_id"?: string | null,"cancel_by"?: string | null,"category_id": string,"created_at"?: string,"end_date"?: string | null,"frequency"?: string,"generated_until"?: string,"id"?: string,"name": string,"start_date": string,"user_id"?: string
+                  }
+                  Update: {
+                    "account_id"?: string,"amount_cents"?: number,"bucket_id"?: string | null,"cancel_by"?: string | null,"category_id"?: string,"created_at"?: string,"end_date"?: string | null,"frequency"?: string,"generated_until"?: string,"id"?: string,"name"?: string,"start_date"?: string,"user_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "recurring_rules_account_id_user_id_fkey"
+      columns: ["account_id","user_id"]
+isOneToOne: false
+      referencedRelation: "accounts"
+      referencedColumns: ["id","user_id"]
+    },{
+      foreignKeyName: "recurring_rules_bucket_id_user_id_fkey"
+      columns: ["bucket_id","user_id"]
+isOneToOne: false
+      referencedRelation: "buckets"
+      referencedColumns: ["id","user_id"]
+    },{
+      foreignKeyName: "recurring_rules_category_id_user_id_fkey"
+      columns: ["category_id","user_id"]
+isOneToOne: false
+      referencedRelation: "categories"
+      referencedColumns: ["id","user_id"]
+    }
+                  ]
                 },"settings": {
                   Row: {
                     "created_at": string,"go_live_month": string,"opening_residual_cents": number,"savings_amount_cents": number | null,"savings_bucket_id": string | null,"savings_pct": number,"user_id": string
@@ -279,14 +311,14 @@ isOneToOne: false
                   ]
                 },"transactions": {
                   Row: {
-                    "account_id": string,"amount_cents": number,"booking_date": string,"bucket_id": string | null,"category_id": string | null,"created_at": string,"id": string,"merchant_id": string | null,"merchant_raw": string | null,"month": string | null,"note": string | null,"occurred_at": string,"review_reason": string | null,"source": string,"status": string,"transfer_group_id": string | null,"user_id": string,"value_date": string | null
+                    "account_id": string,"amount_cents": number,"booking_date": string,"bucket_id": string | null,"category_id": string | null,"created_at": string,"id": string,"merchant_id": string | null,"merchant_raw": string | null,"month": string | null,"note": string | null,"occurred_at": string,"recurring_rule_id": string | null,"review_reason": string | null,"source": string,"status": string,"transfer_group_id": string | null,"user_id": string,"value_date": string | null
                   }
                   ComputedFields: never
                   Insert: {
-                    "account_id": string,"amount_cents": number,"booking_date"?: string,"bucket_id"?: string | null,"category_id"?: string | null,"created_at"?: string,"id"?: string,"merchant_id"?: string | null,"merchant_raw"?: string | null,"month"?: never,"note"?: string | null,"occurred_at"?: string,"review_reason"?: string | null,"source"?: string,"status"?: string,"transfer_group_id"?: string | null,"user_id"?: string,"value_date"?: string | null
+                    "account_id": string,"amount_cents": number,"booking_date"?: string,"bucket_id"?: string | null,"category_id"?: string | null,"created_at"?: string,"id"?: string,"merchant_id"?: string | null,"merchant_raw"?: string | null,"month"?: never,"note"?: string | null,"occurred_at"?: string,"recurring_rule_id"?: string | null,"review_reason"?: string | null,"source"?: string,"status"?: string,"transfer_group_id"?: string | null,"user_id"?: string,"value_date"?: string | null
                   }
                   Update: {
-                    "account_id"?: string,"amount_cents"?: number,"booking_date"?: string,"bucket_id"?: string | null,"category_id"?: string | null,"created_at"?: string,"id"?: string,"merchant_id"?: string | null,"merchant_raw"?: string | null,"month"?: never,"note"?: string | null,"occurred_at"?: string,"review_reason"?: string | null,"source"?: string,"status"?: string,"transfer_group_id"?: string | null,"user_id"?: string,"value_date"?: string | null
+                    "account_id"?: string,"amount_cents"?: number,"booking_date"?: string,"bucket_id"?: string | null,"category_id"?: string | null,"created_at"?: string,"id"?: string,"merchant_id"?: string | null,"merchant_raw"?: string | null,"month"?: never,"note"?: string | null,"occurred_at"?: string,"recurring_rule_id"?: string | null,"review_reason"?: string | null,"source"?: string,"status"?: string,"transfer_group_id"?: string | null,"user_id"?: string,"value_date"?: string | null
                   }
                   Relationships: [
                     {
@@ -312,6 +344,12 @@ isOneToOne: false
       columns: ["merchant_id","user_id"]
 isOneToOne: false
       referencedRelation: "merchants"
+      referencedColumns: ["id","user_id"]
+    },{
+      foreignKeyName: "transactions_recurring_rule_id_user_id_fkey"
+      columns: ["recurring_rule_id","user_id"]
+isOneToOne: false
+      referencedRelation: "recurring_rules"
       referencedColumns: ["id","user_id"]
     }
                   ]
@@ -354,6 +392,9 @@ isOneToOne: false
                            },
 "create_transfer":
 { Args: { "p_amount_cents": number,"p_booking_date"?: string,"p_from": string,"p_id": string,"p_note"?: string,"p_to": string }; Returns: undefined
+                           },
+"due_in_month":
+{ Args: { "p_day": number,"p_month": string }; Returns: string
                            },
 "ingest":
 { Args: { "app": string,"body"?: string,"event_id": string,"occurred_at": string,"subtitle"?: string,"title"?: string,"token": string }; Returns: Json

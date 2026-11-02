@@ -62,6 +62,7 @@ python tools/import/import.py bbva estratto.xlsx --saldo 1234.56 --al 2026-10-12
 - Genera `tools/import/out/estratto-bbva.sql` (escluso da Git) e stampa un rapporto: righe, netto per mese, accantonamenti, movimenti da classificare e la ricostruzione del saldo di apertura.
 - Il file SQL va eseguito nello SQL Editor di Supabase dopo `docs/setup-iniziale.sql`.
 - Si può rieseguire: gli id sono stabili e le categorie assegnate a mano non vengono toccate.
+- Non crea doppioni con ciò che è già registrato: una riga con lo stesso conto e importo, entro 3 giorni, si abbina 1:1 al movimento arrivato da notifica, inserito a mano o generato da una ricorrente, e lo completa. Il risultato dell'esecuzione dice quante righe sono nuove, unite o già importate.
 - Le righe "TRASFERIMENTO PROGRAMMA IL TUO CONTO" diventano accantonamenti verso il Salvadanaio; tutto il resto entra senza categoria, nella riga "Da assegnare".
 
 ## Documentazione

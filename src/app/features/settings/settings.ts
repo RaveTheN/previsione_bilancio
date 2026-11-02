@@ -10,6 +10,7 @@ import { onlineSignal } from '../../core/online';
 import { Account, Category, errorText, supabase } from '../../core/supabase';
 import { Sync } from '../../core/sync';
 import { Devices } from './devices';
+import { Exports } from './exports';
 
 const percent = new Intl.NumberFormat('it-IT', { style: 'percent', maximumFractionDigits: 1 });
 
@@ -29,7 +30,7 @@ async function clearDataCaches(): Promise<void> {
 
 @Component({
   selector: 'app-settings',
-  imports: [Devices, FormsModule, MatButtonModule, RouterLink],
+  imports: [Devices, Exports, FormsModule, MatButtonModule, RouterLink],
   template: `
     <h1>Altro</h1>
 
@@ -45,7 +46,10 @@ async function clearDataCaches(): Promise<void> {
       }
     </section>
 
-    <a class="link" routerLink="/rubrica">Rubrica degli esercenti</a>
+    <nav class="links" aria-label="Altre pagine">
+      <a class="link" routerLink="/rubrica">Rubrica degli esercenti</a>
+      <a class="link" routerLink="/ricorrenti">Ricorrenti</a>
+    </nav>
 
     @if (!online()) {
       <p class="warn" role="status">Sei offline: impostazioni, categorie, conti e dispositivi si modificano solo con la connessione.</p>
@@ -160,6 +164,8 @@ async function clearDataCaches(): Promise<void> {
 
     <app-devices />
     </fieldset>
+
+    <app-exports />
 
     <section>
       <button mat-stroked-button type="button" (click)="signOut()">Esci</button>
