@@ -1,7 +1,7 @@
 -- Import dell'estratto: niente doppioni con ciò che è già registrato. Dati finti.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(6);
+select plan(8);
 
 insert into auth.users (id, email) values ('00000000-0000-0000-0000-00000000000a', 'a@example.com');
 insert into public.accounts (id, user_id, name, role) values
@@ -54,6 +54,21 @@ select is(
   private.import_statement('00000000-0000-0000-0000-00000000000a', (select r from righe)),
   '{"nuovi": 0, "uniti_a_esistenti": 2, "gia_importati": 4}'::jsonb,
   'rieseguire l''import non cambia nulla'
+);
+-- Un'autorizzazione PayPal addebitata giorni dopo come "ADDEBITO PayPal": si unisce e si conferma.
+insert into public.transactions (id, user_id, account_id, amount_cents, booking_date, merchant_raw, source, status, review_reason) values
+  ('60000000-0000-0000-0000-000000000004', '00000000-0000-0000-0000-00000000000a', '10000000-0000-0000-0000-000000000001',
+   -1940, '2026-10-20', 'CONSEGNE ESEMPIO SL', 'notification', 'pending', 'Autorizzato: in attesa dell''addebito');
+select is(
+  private.import_statement('00000000-0000-0000-0000-00000000000a',
+    '[{"id": "70000000-0000-0000-0000-000000000007", "account": "BBVA", "amount": -1940, "booking_date": "2026-10-28", "value_date": "2026-10-27", "merchant": "ADDEBITO PayPal Europe S.a.r.l. et Cie S.C.A"}]'),
+  '{"nuovi": 0, "uniti_a_esistenti": 1, "gia_importati": 0}'::jsonb,
+  'addebito PayPal una settimana dopo: unito all''autorizzazione'
+);
+select results_eq(
+  $$ select status, review_reason, merchant_raw from public.transactions where id = '60000000-0000-0000-0000-000000000004' $$,
+  $$ values ('confirmed', null::text, 'CONSEGNE ESEMPIO SL') $$,
+  'l''autorizzazione diventa confermata e tiene il nome del pagamento'
 );
 select throws_ok(
   $$ select private.import_statement('00000000-0000-0000-0000-00000000000a',

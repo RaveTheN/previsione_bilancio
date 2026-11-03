@@ -49,6 +49,7 @@ async function clearDataCaches(): Promise<void> {
     <nav class="links" aria-label="Altre pagine">
       <a class="link" routerLink="/rubrica">Rubrica degli esercenti</a>
       <a class="link" routerLink="/ricorrenti">Ricorrenti</a>
+      <a class="link" routerLink="/regole">Regole notifiche</a>
     </nav>
 
     @if (!online()) {

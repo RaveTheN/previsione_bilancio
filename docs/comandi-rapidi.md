@@ -70,6 +70,19 @@ Automazione → nuova → **Notifica** → app **BBVA** → **Esegui immediatame
 
 6. *Esegui comando rapido* "Bilancio · Invia", con il dizionario come input.
 
+### La stessa automazione per PayPal
+
+Crea un'altra automazione **Notifica** → app **PayPal** → **Esegui immediatamente**, uguale a quella della BBVA, con due differenze:
+
+- al passo 1 aggiungi anche `code` tra le parole che fermano il comando: i testi di PayPal sono in inglese. Il server scarta comunque i codici di sicurezza, anche in inglese;
+- nel dizionario, `app` è il testo fisso `PayPal`.
+
+Non serve un'automazione per Vinted: le sue notifiche sono solo avvisi di consegna, senza importi.
+
+Una notifica PayPal e una della BBVA per lo stesso pagamento diventano un movimento solo, in qualunque ordine arrivino. Un pagamento solo "autorizzato" resta in **Da rivedere** finché non arriva l'addebito.
+
+Per un'altra app con importi: crea la sua automazione nello stesso modo e aggiungi le sue regole da Altro → **Regole notifiche**, dove le provi sulle notifiche già ricevute.
+
 ## 3. Automazione "Svuota coda"
 
 Automazione → **Ora del giorno** (ogni giorno alle 21:00) → **Esegui immediatamente** → *Esegui comando rapido* "Bilancio · Invia", senza input.

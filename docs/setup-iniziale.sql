@@ -68,3 +68,19 @@ from auth.users u,
 where not exists (
   select from public.parse_rules p where p.user_id = u.id and p.app = 'BBVA' and p.match_regex = r.match_regex
 );
+
+-- Regole delle notifiche PayPal (Fase 6), in inglese e senza carta: vale il primo conto spendibile.
+--   "You sent €5.00 EUR to Mario Rossi"
+--   "Your purchase at NEGOZIO" + "Your €4,99 EUR payment was completed. Tap for more details."
+--   "Your purchase at NEGOZIO" + "You authorized a payment of €19,40 EUR. Tap for more details."
+insert into public.parse_rules (user_id, app, priority, match_regex, action, amount_regex, merchant_regex)
+select u.id, 'PayPal', r.priority, r.match_regex, r.action, '€\s*([0-9][0-9.,]*)', r.merchant_regex
+from auth.users u,
+  (values
+    (1, 'You sent', 'expense', 'You sent \S+ EUR to ([^\n]+)'),
+    (2, 'payment was completed', 'expense', 'Your purchase at ([^\n]+)'),
+    (3, 'You authorized a payment', 'authorized', 'Your purchase at ([^\n]+)')
+  ) as r (priority, match_regex, action, merchant_regex)
+where not exists (
+  select from public.parse_rules p where p.user_id = u.id and p.app = 'PayPal' and p.match_regex = r.match_regex
+);

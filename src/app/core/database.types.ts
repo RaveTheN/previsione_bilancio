@@ -411,6 +411,14 @@ isOneToOne: false
 "reprocess_event":
 { Args: { "p_event_id": string }; Returns: Json
                            },
+"reprocess_events":
+{ Args: Record<PropertyKey, never>; Returns: Json
+                           },
+"test_parse":
+{ Args: { "p_amount": string,"p_app": string,"p_card": string,"p_match": string,"p_merchant": string }; Returns: {
+              "amount_cents": number,"card": string,"matched": boolean,"merchant": string,"notification": string,"occurred_at": string
+            }[]
+                           },
 "undo_assign_like":
 { Args: { "p_result": Json }; Returns: undefined
                            },

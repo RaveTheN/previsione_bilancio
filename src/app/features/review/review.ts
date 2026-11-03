@@ -39,6 +39,12 @@ import { QuickAddLauncher } from '../quick-add/quick-add';
           <p class="note">Nessuna.</p>
         }
       </ul>
+      @if (events().length) {
+        <div class="actions tools">
+          <a mat-button routerLink="/regole">Regole notifiche</a>
+          <button mat-stroked-button type="button" [disabled]="!online()" (click)="retryAll()">Riprova tutte</button>
+        </div>
+      }
     </section>
 
     <section>
@@ -108,8 +114,13 @@ import { QuickAddLauncher } from '../quick-add/quick-add';
       display: flex;
       gap: 8px;
     }
-    .actions button {
+    .actions button,
+    .actions a {
       min-height: 44px;
+    }
+    .tools {
+      justify-content: flex-end;
+      margin-top: 8px;
     }
     a {
       display: flex;
@@ -159,6 +170,17 @@ export class Review {
     const res = await supabase.rpc('reprocess_event', { p_event_id: e.id });
     const message = (res.data as { message?: string } | null)?.message;
     this.snackBar.open(res.error ? 'Non riuscito: ' + errorText(res) : (message ?? 'Fatto'), 'OK', { duration: 5000 });
+    await this.load();
+  }
+
+  protected async retryAll(): Promise<void> {
+    const res = await supabase.rpc('reprocess_events');
+    const counts = res.data as { riconosciute: number; ancora_da_rivedere: number } | null;
+    this.snackBar.open(
+      res.error ? 'Non riuscito: ' + errorText(res) : `Riconosciute ${counts?.riconosciute}, ancora da rivedere ${counts?.ancora_da_rivedere}`,
+      'OK',
+      { duration: 5000 },
+    );
     await this.load();
   }
 
