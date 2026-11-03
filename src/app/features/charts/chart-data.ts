@@ -11,6 +11,18 @@ export interface ChartData {
   months: ChartMonth[];
   merchants: { name: string; cents: number }[];
   recurring: { name: string; yearly: number; active: boolean; months: Record<string, number> }[];
+  /** Uscite del periodo per categoria ed esercente: la loro somma è quella delle uscite della vista mese. */
+  spending: { category_id: string | null; merchant: string | null; cents: number }[];
+}
+
+/** Una fetta della torta: se ha figli, toccandola si apre nelle sue parti. */
+export interface PieNode {
+  key: string;
+  label: string;
+  cents: number;
+  /** Posizione nella palette, come in Series. */
+  slot: number;
+  children: PieNode[];
 }
 
 export interface Series {
@@ -146,6 +158,68 @@ export function bucketChart(months: ChartMonth[], buckets: Bucket[]): ChartSpec 
     summary: `Sullo stipendio, con gli obiettivi come linee: ${list((b) => b.target_pct)}. ${monthLabel(last.month)}: ${list((b) => pct(last, b.id))}.`,
     ticks,
   };
+}
+
+const MAX_SLICES = 6;
+const UNASSIGNED = 'da-assegnare';
+const OTHERS = 'altri';
+const NO_MERCHANT = 'senza-esercente';
+
+const sumCents = (list: { cents: number }[]) => list.reduce((s, x) => s + x.cents, 0);
+const bySize = (a: { cents: number }, b: { cents: number }) => b.cents - a.cents;
+
+/** Al massimo sei fette: oltre, la sesta raccoglie il resto e si apre a sua volta. Il colore segue la posizione. */
+function fold(list: PieNode[]): PieNode[] {
+  const rest = list.slice(MAX_SLICES - 1);
+  const shown =
+    list.length <= MAX_SLICES ? list : [...list.slice(0, MAX_SLICES - 1), { key: OTHERS, label: `Altri (${rest.length})`, cents: sumCents(rest), slot: 0, children: fold(rest) }];
+  return shown.map((n, i) => ({ ...n, slot: n.key === OTHERS || n.key === UNASSIGNED ? 0 : i + 1 }));
+}
+
+/** Un livello con un solo figlio apribile non aggiunge nulla: si passa direttamente alle sue parti. */
+function branch(key: string, label: string, cents: number, children: PieNode[]): PieNode {
+  return { key, label, cents, slot: 0, children: fold(children.length === 1 && children[0].children.length ? children[0].children : children) };
+}
+
+function merchantLeaves(rows: ChartData['spending']): PieNode[] {
+  const leaves = rows.map((r) => ({ key: r.merchant ?? NO_MERCHANT, label: r.merchant ?? 'Senza esercente', cents: r.cents, slot: 0, children: [] })).sort(bySize);
+  // Solo movimenti senza esercente (es. l'affitto col bonifico): non c'è niente da aprire.
+  return leaves.length === 1 && leaves[0].key === NO_MERCHANT ? [] : leaves;
+}
+
+/** Uscite del periodo: Super categoria → Categoria → Esercente. Le super categorie restano nell'ordine delle categorie e tengono il colore al cambio di periodo. */
+export function spendingTree(rows: ChartData['spending'], categories: Map<string, Category>): PieNode {
+  const superOf = (c: Category) => c.super_category ?? 'Altro';
+  const orders = new Map<string, number>();
+  for (const c of [...categories.values()].filter((x) => x.kind === 'expense').sort((a, b) => a.sort_order - b.sort_order)) {
+    if (!orders.has(superOf(c))) orders.set(superOf(c), orders.size);
+  }
+
+  const groups = [...orders.keys()].map((name) => {
+    const inGroup = rows.filter((r) => {
+      const cat = r.category_id ? categories.get(r.category_id) : undefined;
+      return cat && superOf(cat) === name;
+    });
+    const nodes = [...new Set(inGroup.map((r) => r.category_id as string))]
+      .map((id) => {
+        const own = inGroup.filter((r) => r.category_id === id);
+        return branch(id, categories.get(id)?.name ?? '', sumCents(own), merchantLeaves(own));
+      })
+      .sort(bySize);
+    return branch(name, name, sumCents(inGroup), nodes);
+  });
+
+  // Tutto ciò che non sta in un gruppo finisce qui: nessun euro deve sparire dal totale.
+  const unassigned = rows.filter((r) => {
+    const cat = r.category_id ? categories.get(r.category_id) : undefined;
+    return !cat || !orders.has(superOf(cat));
+  });
+  const top = groups.filter((g) => g.cents);
+  if (unassigned.length) top.push(branch(UNASSIGNED, 'Da assegnare', sumCents(unassigned), merchantLeaves(unassigned)));
+
+  const names = [...orders.keys()];
+  const children = fold(top).map((n) => (names.includes(n.key) ? { ...n, slot: names.indexOf(n.key) < 7 ? names.indexOf(n.key) + 1 : 0 } : n));
+  return { key: 'tutte', label: 'Tutte le uscite', cents: sumCents(rows), slot: 0, children };
 }
 
 export function merchantChart(merchants: ChartData['merchants']): ChartSpec {

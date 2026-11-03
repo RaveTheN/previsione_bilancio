@@ -113,14 +113,14 @@ isOneToOne: false
                   ]
                 },"categories": {
                   Row: {
-                    "archived": boolean,"created_at": string,"id": string,"is_salary": boolean,"kind": string,"name": string,"sort_order": number,"user_id": string
+                    "archived": boolean,"created_at": string,"id": string,"is_salary": boolean,"kind": string,"name": string,"sort_order": number,"super_category": string | null,"user_id": string
                   }
                   ComputedFields: never
                   Insert: {
-                    "archived"?: boolean,"created_at"?: string,"id"?: string,"is_salary"?: boolean,"kind": string,"name": string,"sort_order"?: number,"user_id"?: string
+                    "archived"?: boolean,"created_at"?: string,"id"?: string,"is_salary"?: boolean,"kind": string,"name": string,"sort_order"?: number,"super_category"?: string | null,"user_id"?: string
                   }
                   Update: {
-                    "archived"?: boolean,"created_at"?: string,"id"?: string,"is_salary"?: boolean,"kind"?: string,"name"?: string,"sort_order"?: number,"user_id"?: string
+                    "archived"?: boolean,"created_at"?: string,"id"?: string,"is_salary"?: boolean,"kind"?: string,"name"?: string,"sort_order"?: number,"super_category"?: string | null,"user_id"?: string
                   }
                   Relationships: [
                     

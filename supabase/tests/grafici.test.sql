@@ -1,7 +1,7 @@
 -- Fase 8: dati dei grafici, coerenti con la vista mese. Dati finti.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(14);
+select plan(18);
 
 insert into auth.users (id, email) values
   ('00000000-0000-0000-0000-00000000000a', 'a@example.com'),
@@ -127,14 +127,41 @@ select is(
   'una ricorrente finita non è più attiva'
 );
 
+select is(
+  (select sum((s ->> 'cents')::bigint) from risultato, jsonb_array_elements(d -> 'spending') s),
+  (select -sum((m ->> 'expense_actual')::bigint) from risultato, jsonb_array_elements(d -> 'months') m where m ->> 'month' <= '2026-11-01'),
+  'la torta somma esattamente le uscite della vista mese, fino al mese in corso'
+);
+select bag_eq(
+  $$ select s ->> 'category_id' as categoria, s ->> 'merchant' as esercente, (s ->> 'cents')::bigint as centesimi
+     from risultato, jsonb_array_elements(d -> 'spending') s $$,
+  $$ values
+       (null, 'Il Bar', 1500::bigint),
+       (null, 'NEGOZIO', 4000::bigint),
+       (null, null, 18000::bigint),
+       ('30000000-0000-0000-0000-000000000002', null, 1100::bigint) $$,
+  'per categoria ed esercente: generiche e ignorati senza nome; fuori rifiutati, trasferimenti, entrate e mesi futuri'
+);
+select is(
+  (select count(*) from risultato, jsonb_array_elements(d -> 'spending') s where s ->> 'category_id' = '30000000-0000-0000-0000-000000000001'),
+  0::bigint,
+  'una categoria di entrata non è una fetta'
+);
+
 -- Un altro utente non vede nulla.
 select set_config('request.jwt.claims', '{"sub": "00000000-0000-0000-0000-00000000000b", "role": "authenticated"}', true);
 select is(
-  (select array[d -> 'merchants', d -> 'recurring'] from (select public.chart_data('2026-09-01', '2026-12-01', '2026-11-15') as d) x),
-  array['[]'::jsonb, '[]'::jsonb],
+  (select array[d -> 'merchants', d -> 'recurring', d -> 'spending'] from (select public.chart_data('2026-09-01', '2026-12-01', '2026-11-15') as d) x),
+  array['[]'::jsonb, '[]'::jsonb, '[]'::jsonb],
   'i dati di un altro utente restano invisibili'
 );
 reset role;
+
+select throws_ok(
+  $$ update public.categories set super_category = '  ' where id = '30000000-0000-0000-0000-000000000002' $$,
+  '23514', null,
+  'una super categoria non può essere vuota'
+);
 
 select is(has_function_privilege('anon', 'public.chart_data(date, date, date)', 'execute'), false, 'anon non può chiamare i dati dei grafici');
 select is(

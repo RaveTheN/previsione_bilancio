@@ -1,10 +1,25 @@
-import { Component, computed, DestroyRef, effect, ElementRef, inject, input, signal, viewChild } from '@angular/core';
-import { BarController, BarElement, CategoryScale, Chart, ChartConfiguration, Legend, LinearScale, LineController, LineElement, Plugin, PointElement, Tooltip } from 'chart.js';
+import { Component, computed, DestroyRef, effect, ElementRef, inject, input, Signal, signal, viewChild } from '@angular/core';
+import {
+  ArcElement,
+  BarController,
+  BarElement,
+  CategoryScale,
+  Chart,
+  ChartConfiguration,
+  Legend,
+  LinearScale,
+  LineController,
+  LineElement,
+  PieController,
+  Plugin,
+  PointElement,
+  Tooltip,
+} from 'chart.js';
 import { formatCents } from '../../core/money';
 import { ChartSpec, formatPct } from './chart-data';
 
 // Solo i pezzi usati: il resto di Chart.js non entra nel pacchetto.
-Chart.register(BarController, BarElement, LineController, LineElement, PointElement, CategoryScale, LinearScale, Legend, Tooltip);
+Chart.register(ArcElement, BarController, BarElement, LineController, LineElement, PieController, PointElement, CategoryScale, LinearScale, Legend, Tooltip);
 Chart.defaults.font.family = "system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif";
 
 // Una tinta per modo: controllate con il validatore sui fondi dell'app. Il primo è il grigio di previsioni e "Altre".
@@ -18,6 +33,27 @@ interface Colors {
   surface: string;
   ink: string;
   grid: string;
+}
+
+/** Tema del sistema, aggiornato se cambia. Va creato in un contesto di injection. */
+export function darkSignal(): Signal<boolean> {
+  const media = matchMedia('(prefers-color-scheme: dark)');
+  const dark = signal(media.matches);
+  const update = () => dark.set(media.matches);
+  media.addEventListener('change', update);
+  inject(DestroyRef).onDestroy(() => media.removeEventListener('change', update));
+  return dark.asReadonly();
+}
+
+/** Colori per il disegno: testo e griglia vengono da color e border-color dell'elemento, così seguono il tema. */
+export function themeColors(host: HTMLElement, dark: boolean): Colors {
+  const style = getComputedStyle(host);
+  return {
+    series: dark ? PALETTE.dark : PALETTE.light,
+    surface: getComputedStyle(document.body).backgroundColor,
+    ink: style.color,
+    grid: style.borderTopColor,
+  };
 }
 
 /** Il valore in fondo alla barra, per i grafici con una sola serie: si legge senza toccare. */
@@ -241,7 +277,7 @@ export class ChartView {
 
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly canvas = viewChild<ElementRef<HTMLCanvasElement>>('canvas');
-  private readonly dark = signal(false);
+  private readonly dark = darkSignal();
 
   /** Le barre crescono con le righe; il resto ha un'altezza fissa, assi compresi. */
   protected readonly height = computed(() => {
@@ -251,28 +287,13 @@ export class ChartView {
   });
 
   constructor() {
-    const media = matchMedia('(prefers-color-scheme: dark)');
-    const update = () => this.dark.set(media.matches);
-    update();
-    media.addEventListener('change', update);
-    inject(DestroyRef).onDestroy(() => media.removeEventListener('change', update));
-
     // Niente animazioni: ridisegnare da zero non si vede, ed è il modo più semplice di seguire dati e tema.
     effect((onCleanup) => {
       const canvas = this.canvas()?.nativeElement;
       const spec = this.spec();
       const dark = this.dark();
       if (!canvas) return;
-      const style = getComputedStyle(this.host.nativeElement);
-      const chart = new Chart(
-        canvas,
-        config(spec, {
-          series: dark ? PALETTE.dark : PALETTE.light,
-          surface: getComputedStyle(document.body).backgroundColor,
-          ink: style.color,
-          grid: style.borderTopColor,
-        }),
-      );
+      const chart = new Chart(canvas, config(spec, themeColors(this.host.nativeElement, dark)));
       onCleanup(() => chart.destroy());
     });
   }

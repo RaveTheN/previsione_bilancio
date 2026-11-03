@@ -119,10 +119,25 @@ async function clearDataCaches(): Promise<void> {
                 <input type="checkbox" [checked]="c.archived" (change)="update('categories', c.id, { archived: checked($event) })" />
                 Archiviata
               </label>
+              @if (kind.value === 'expense') {
+                <input
+                  class="super"
+                  list="super-categorie"
+                  placeholder="Super categoria: Altro"
+                  [attr.aria-label]="'Super categoria di ' + c.name"
+                  [value]="c.super_category ?? ''"
+                  (change)="update('categories', c.id, { super_category: value($event) || null })"
+                />
+              }
             </li>
           }
         </ul>
       }
+      <datalist id="super-categorie">
+        @for (name of superCategories(); track name) {
+          <option [value]="name"></option>
+        }
+      </datalist>
       <form class="row" (ngSubmit)="addCategory()">
         <input name="newCategory" placeholder="Nuova categoria" aria-label="Nuova categoria" required [(ngModel)]="newCategory" />
         <select name="newKind" aria-label="Tipo" [(ngModel)]="newKind">
@@ -210,17 +225,22 @@ async function clearDataCaches(): Promise<void> {
     li,
     .row {
       display: flex;
+      flex-wrap: wrap;
       align-items: center;
       gap: 8px;
       min-height: 48px;
-    }
-    .row {
-      flex-wrap: wrap;
     }
     li input:not([type='checkbox']),
     .row input {
       flex: 1;
       min-width: 0;
+    }
+    /* La super categoria sta sulla sua riga, sotto il nome. */
+    li input.super {
+      flex-basis: 100%;
+    }
+    li:has(.super) {
+      padding-bottom: 8px;
     }
     input:not([type='checkbox']),
     select {
@@ -288,6 +308,7 @@ export class Settings {
   private readonly router = inject(Router);
   private readonly snackBar = inject(MatSnackBar);
   protected readonly kinds = KINDS;
+  protected readonly superCategories = computed(() => [...new Set(this.ledger.categories().flatMap((c) => c.super_category ?? []))].sort());
 
   protected newCategory = '';
   protected newKind: Category['kind'] = 'expense';

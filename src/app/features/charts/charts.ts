@@ -4,12 +4,13 @@ import { currentMonth, Ledger } from '../../core/ledger';
 import { errorText, supabase } from '../../core/supabase';
 import { Sync } from '../../core/sync';
 import { ChartView } from './chart';
-import { bucketChart, categoryChart, ChartData, merchantChart, periodOptions, periodRange, recurringChart, savingsChart } from './chart-data';
+import { bucketChart, categoryChart, ChartData, merchantChart, periodOptions, periodRange, recurringChart, savingsChart, spendingTree } from './chart-data';
+import { PieView } from './pie';
 
 /** Il filtro del periodo vale per tutti i grafici: i numeri sono quelli di griglia e vista mese. */
 @Component({
   selector: 'app-charts',
-  imports: [ChartView, FormsModule],
+  imports: [ChartView, FormsModule, PieView],
   template: `
     <h1>Grafici</h1>
     <label>
@@ -20,11 +21,14 @@ import { bucketChart, categoryChart, ChartData, merchantChart, periodOptions, pe
         }
       </select>
     </label>
-    <p class="note">Scostamenti, secchi ed esercenti arrivano fino al mese in corso.</p>
+    <p class="note">Torta, scostamenti, secchi ed esercenti arrivano fino al mese in corso.</p>
     @if (error()) {
       <p class="warn" role="alert">{{ error() }}</p>
     }
     <div class="grid" [class.stale]="loading()" [attr.aria-busy]="loading()">
+      @if (tree(); as t) {
+        <app-pie [tree]="t" />
+      }
       @for (c of charts(); track c.heading) {
         <app-chart [heading]="c.heading" [spec]="c.spec" />
       }
@@ -92,6 +96,11 @@ export class Charts {
   private readonly goLive = computed(() => this.ledger.settings()?.go_live_month ?? null);
 
   protected readonly options = computed(() => periodOptions(this.current, this.goLive()));
+
+  protected readonly tree = computed(() => {
+    const data = this.data();
+    return data && spendingTree(data.spending, this.ledger.categoryById());
+  });
 
   protected readonly charts = computed(() => {
     const data = this.data();

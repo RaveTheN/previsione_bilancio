@@ -49,6 +49,18 @@ from auth.users u,
   ) as c (name, kind, ord)
 on conflict do nothing;
 
+-- Super categorie delle spese, per la torta dei grafici: si cambiano da Altro → Categorie.
+update public.categories c set super_category = x.super
+from (values
+  ('Affitto', 'Casa'), ('Utenze', 'Casa'), ('Telefono e internet', 'Casa'), ('Garage', 'Casa'),
+  ('Spesa', 'Vita quotidiana'), ('Salute', 'Vita quotidiana'), ('Cura personale', 'Vita quotidiana'), ('Contanti', 'Vita quotidiana'),
+  ('Trasporti', 'Spostamenti'), ('Carburante', 'Spostamenti'), ('Moto/auto', 'Spostamenti'),
+  ('Servizi digitali', 'Abbonamenti'), ('Streaming', 'Abbonamenti'),
+  ('Rate e prestiti', 'Altro'), ('Uscite e ristoranti', 'Altro'), ('Acquisti', 'Altro'),
+  ('Musica e strumenti', 'Altro'), ('Viaggi ed eventi', 'Altro'), ('Regali fatti', 'Altro')
+) as x (name, super)
+where c.name = x.name and c.kind = 'expense' and c.super_category is null;
+
 insert into public.accounts (user_id, name, role, sort_order)
 select u.id, a.name, a.role, a.ord
 from auth.users u,

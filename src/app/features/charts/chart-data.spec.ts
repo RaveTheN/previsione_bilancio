@@ -1,5 +1,5 @@
 import { Bucket, Category, MonthLine } from '../../core/supabase';
-import { bucketChart, categoryChart, ChartData, ChartMonth, merchantChart, periodOptions, periodRange, recurringChart, savingsChart } from './chart-data';
+import { bucketChart, categoryChart, ChartData, ChartMonth, merchantChart, periodOptions, periodRange, recurringChart, savingsChart, spendingTree } from './chart-data';
 
 const cat = (id: string, name: string, kind: string) => ({ id, name, kind }) as Category;
 const categories = new Map(
@@ -160,6 +160,90 @@ it('top esercenti: una sola serie, senza legenda', () => {
   expect(spec.series).toHaveLength(1);
   expect(spec.summary).toContain('Il Bar');
   expect(merchantChart([]).labels).toEqual([]);
+});
+
+describe('torta delle uscite', () => {
+  const expense = (id: string, name: string, sort_order: number, super_category: string | null) => ({ id, name, kind: 'expense', sort_order, super_category }) as Category;
+  const cats = new Map(
+    [
+      expense('aff', 'Affitto', 1, 'Casa'),
+      expense('ute', 'Utenze', 2, 'Casa'),
+      expense('car', 'Carburante', 3, 'Spostamenti'),
+      expense('mus', 'Musica', 4, null),
+      cat('stip', 'Stipendio', 'income'),
+    ].map((c) => [c.id, c]),
+  );
+  const row = (category_id: string | null, merchant: string | null, cents: number) => ({ category_id, merchant, cents });
+  const rows = [
+    row('aff', null, 45000),
+    row('ute', 'LUCE SPA', 3000),
+    row('ute', 'ACQUA SPA', 1000),
+    row('car', 'DISTRIBUTORE', 5000),
+    row('car', null, 2000),
+    row('mus', 'NEGOZIO DISCHI', 8000),
+    row(null, 'SCONOSCIUTO', 700),
+    row(null, null, 300),
+  ];
+  const tree = spendingTree(rows, cats);
+  const child = (key: string) => tree.children.find((n) => n.key === key)!;
+
+  it('il totale è quello delle righe, e i livelli lo conservano', () => {
+    expect(tree.cents).toBe(65000);
+    expect(tree.children.reduce((s, n) => s + n.cents, 0)).toBe(65000);
+  });
+
+  it('in cima le super categorie, nell\'ordine delle categorie; senza super categoria vale "Altro"; poi "Da assegnare"', () => {
+    expect(tree.children.map((n) => n.label)).toEqual(['Casa', 'Spostamenti', 'Altro', 'Da assegnare']);
+    expect(tree.children.map((n) => n.slot)).toEqual([1, 2, 3, 0]);
+  });
+
+  it('una super categoria si apre nelle categorie, una categoria negli esercenti', () => {
+    expect(child('Casa').children.map((n) => [n.label, n.cents])).toEqual([
+      ['Affitto', 45000],
+      ['Utenze', 4000],
+    ]);
+    expect(child('Casa').children[1].children.map((n) => n.label)).toEqual(['LUCE SPA', 'ACQUA SPA']);
+  });
+
+  it('una categoria con soli movimenti senza esercente non si apre', () => {
+    expect(child('Casa').children[0].children).toEqual([]);
+  });
+
+  it('i movimenti senza esercente restano come fetta accanto agli altri', () => {
+    expect(child('Spostamenti').children.map((n) => n.label)).toEqual(['DISTRIBUTORE', 'Senza esercente']);
+  });
+
+  it('con una sola categoria apribile si passa direttamente agli esercenti', () => {
+    // Spostamenti ha solo Carburante, Altro solo Musica.
+    expect(child('Altro').children.map((n) => n.label)).toEqual(['NEGOZIO DISCHI']);
+  });
+
+  it('"Da assegnare" si apre negli esercenti', () => {
+    expect(child('da-assegnare').children.map((n) => n.label)).toEqual(['SCONOSCIUTO', 'Senza esercente']);
+  });
+
+  it('oltre sei fette, la sesta raccoglie il resto e si apre a sua volta: nessun euro si perde', () => {
+    const many = [...Array(14).keys()].map((i) => row('ute', `E${i}`, 1000 - i));
+    const utenze = spendingTree(many, cats).children[0];
+    expect(utenze.children).toHaveLength(6);
+    const others = utenze.children[5];
+    expect(others.key).toBe('altri');
+    expect(others.slot).toBe(0);
+    expect(others.label).toBe('Altri (9)');
+    expect(others.children).toHaveLength(6);
+    expect(others.children[5].label).toBe('Altri (4)');
+    expect(utenze.children.reduce((s, n) => s + n.cents, 0)).toBe(utenze.cents);
+    expect(others.children[0].slot).toBe(1);
+  });
+
+  it('il colore di una super categoria non cambia se in un periodo un\'altra manca', () => {
+    const noHouse = spendingTree([row('car', 'DISTRIBUTORE', 5000)], cats);
+    expect(noHouse.children.map((n) => [n.label, n.slot])).toEqual([['Spostamenti', 2]]);
+  });
+
+  it('un periodo senza uscite è vuoto', () => {
+    expect(spendingTree([], cats).children).toEqual([]);
+  });
 });
 
 describe('ricorrenti', () => {
