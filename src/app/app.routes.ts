@@ -14,6 +14,7 @@ export const routes: Routes = [
         loadComponent: () => import('./features/transactions/transactions').then((m) => m.Transactions),
       },
       { path: 'anno', loadComponent: () => import('./features/year/year').then((m) => m.Year) },
+      { path: 'grafici', loadComponent: () => import('./features/charts/charts').then((m) => m.Charts) },
       { path: 'da-rivedere', loadComponent: () => import('./features/review/review').then((m) => m.Review) },
       { path: 'regole', loadComponent: () => import('./features/rules/rules').then((m) => m.Rules) },
       { path: 'ricorrenti', loadComponent: () => import('./features/recurring/recurring').then((m) => m.Recurring) },

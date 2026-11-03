@@ -3,6 +3,9 @@ begin;
 create extension if not exists pgtap with schema extensions;
 select plan(16);
 
+-- Il job elabora le regole di tutti gli utenti: quelle già nel database locale falserebbero i conteggi.
+delete from public.recurring_rules;
+
 insert into auth.users (id, email) values
   ('00000000-0000-0000-0000-00000000000a', 'a@example.com'),
   ('00000000-0000-0000-0000-00000000000b', 'b@example.com');

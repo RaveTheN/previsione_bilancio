@@ -27,6 +27,13 @@ import { QuickAddLauncher } from '../quick-add/quick-add';
         </svg>
         <span>Anno</span>
       </a>
+      <!-- Su schermo stretto si raggiunge da Altro: la barra in basso ha già cinque voci. -->
+      <a class="wide" routerLink="/grafici" routerLinkActive="active">
+        <svg viewBox="0 -960 960 960" aria-hidden="true">
+          <path d="M640-160v-280h160v280H640Zm-240 0v-640h160v640H400Zm-240 0v-440h160v440H160Z" />
+        </svg>
+        <span>Grafici</span>
+      </a>
       <a routerLink="/movimenti" routerLinkActive="active">
         <svg viewBox="0 -960 960 960" aria-hidden="true">
           <path
@@ -149,8 +156,9 @@ import { QuickAddLauncher } from '../quick-add/quick-add';
       background: var(--mat-sys-error-container);
       color: var(--mat-sys-on-error-container);
     }
-    /* La griglia usa tutta la larghezza. */
-    main:has(app-year) {
+    /* Griglia e grafici usano tutta la larghezza. */
+    main:has(app-year),
+    main:has(app-charts) {
       max-width: none;
     }
     .wide {

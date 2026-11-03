@@ -390,6 +390,9 @@ isOneToOne: false
             "assign_like":
 { Args: { "p_transaction_id": string }; Returns: Json
                            },
+"chart_data":
+{ Args: { "p_from": string,"p_to": string,"p_today"?: string }; Returns: Json
+                           },
 "create_transfer":
 { Args: { "p_amount_cents": number,"p_booking_date"?: string,"p_from": string,"p_id": string,"p_note"?: string,"p_to": string }; Returns: undefined
                            },
