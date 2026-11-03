@@ -47,7 +47,6 @@ async function clearDataCaches(): Promise<void> {
     </section>
 
     <nav class="links" aria-label="Altre pagine">
-      <a class="link" routerLink="/grafici">Grafici</a>
       <a class="link" routerLink="/rubrica">Rubrica degli esercenti</a>
       <a class="link" routerLink="/ricorrenti">Ricorrenti</a>
       <a class="link" routerLink="/regole">Regole notifiche</a>
@@ -177,6 +176,8 @@ async function clearDataCaches(): Promise<void> {
     :host,
     fieldset {
       display: grid;
+      /* Senza minmax una riga larga allargherebbe la colonna oltre lo schermo. */
+      grid-template-columns: minmax(0, 1fr);
       gap: 24px;
     }
     fieldset {
@@ -212,6 +213,9 @@ async function clearDataCaches(): Promise<void> {
       align-items: center;
       gap: 8px;
       min-height: 48px;
+    }
+    .row {
+      flex-wrap: wrap;
     }
     li input:not([type='checkbox']),
     .row input {

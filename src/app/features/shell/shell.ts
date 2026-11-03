@@ -27,7 +27,7 @@ import { QuickAddLauncher } from '../quick-add/quick-add';
         </svg>
         <span>Anno</span>
       </a>
-      <!-- Su schermo stretto si raggiunge da Altro: la barra in basso ha già cinque voci. -->
+      <!-- Su schermo stretto si raggiunge dalla pagina Mese: la barra in basso ha già cinque voci. -->
       <a class="wide" routerLink="/grafici" routerLinkActive="active">
         <svg viewBox="0 -960 960 960" aria-hidden="true">
           <path d="M640-160v-280h160v280H640Zm-240 0v-640h160v640H400Zm-240 0v-440h160v440H160Z" />
@@ -110,7 +110,8 @@ import { QuickAddLauncher } from '../quick-add/quick-add';
       display: grid;
       justify-items: center;
       gap: 2px;
-      min-width: 64px;
+      /* 64 px con il padding: di più e le cinque voci non entrano negli iPhone da 390 px. */
+      min-width: 40px;
       min-height: 56px;
       padding: 6px 12px;
       border: 0;

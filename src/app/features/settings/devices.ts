@@ -69,6 +69,7 @@ async function newToken(): Promise<{ token: string; hash: string }> {
   styles: `
     section {
       display: grid;
+      grid-template-columns: minmax(0, 1fr);
       gap: 8px;
     }
     h2 {
@@ -83,6 +84,7 @@ async function newToken(): Promise<{ token: string; hash: string }> {
     li,
     .row {
       display: flex;
+      flex-wrap: wrap;
       align-items: center;
       justify-content: space-between;
       gap: 8px;

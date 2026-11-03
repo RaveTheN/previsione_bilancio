@@ -143,6 +143,7 @@ const TONE_WORD = { better: 'meglio', worse: 'peggio', even: 'in linea' };
           {{ editing() ? 'Fine' : 'Modifica previsione' }}
         </button>
         <button mat-stroked-button type="button" (click)="launcher.openTransfer()">Trasferisci</button>
+        <a mat-stroked-button routerLink="/grafici">Grafici</a>
       </div>
 
       @if (editing() && !online()) {
@@ -347,7 +348,8 @@ const TONE_WORD = { better: 'meglio', worse: 'peggio', even: 'in linea' };
       flex-wrap: wrap;
       gap: 8px;
     }
-    .actions button {
+    .actions button,
+    .actions a {
       min-height: 44px;
     }
     h2 {
