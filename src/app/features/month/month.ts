@@ -78,9 +78,10 @@ const TONE_WORD = { better: 'meglio', worse: 'peggio', even: 'in linea' };
             </tr>
             <tr>
               <th scope="row">Accantonato</th>
-              <td>{{ fmt(-o.saving_forecast) }}</td>
+              <!-- || 0: il meno di zero stamperebbe "-0,00 €". -->
+              <td>{{ fmt(-o.saving_forecast || 0) }}</td>
               @if (!future()) {
-                <td>{{ fmt(-o.saving_actual) }}</td>
+                <td>{{ fmt(-o.saving_actual || 0) }}</td>
               }
             </tr>
           </tbody>
@@ -129,6 +130,13 @@ const TONE_WORD = { better: 'meglio', worse: 'peggio', even: 'in linea' };
             </div>
           }
         </section>
+      }
+
+      @if (o.debt_cents) {
+        <a class="card debt" routerLink="/debiti">
+          <span class="label">Rate del mese</span>
+          <strong>{{ fmt(o.debt_cents) }}{{ o.debt_pct === null ? '' : ' · ' + pct(o.debt_pct) + ' dello stipendio' }}</strong>
+        </a>
       }
 
       @if (unassigned().n) {
@@ -283,6 +291,10 @@ const TONE_WORD = { better: 'meglio', worse: 'peggio', even: 'in linea' };
     }
     .reserve strong {
       font: var(--mat-sys-title-medium);
+    }
+    .debt {
+      color: inherit;
+      text-decoration: none;
     }
     .label,
     .sub {
@@ -495,6 +507,7 @@ export class Month {
 
   /** Spiega il risparmio predefinito: importo fisso (con la % che fa sullo stipendio) o percentuale. */
   protected defaultText(r: Row): string {
+    if (r.cat?.is_interest) return 'Predefinita: saldo dei conti × tasso, meno il 26%';
     if (r.kind !== 'saving') return 'Predefinita: somma delle ricorrenti';
     const s = this.ledger.settings();
     if (s?.savings_amount_cents == null) return `Predefinita: ${this.pct(s?.savings_pct ?? null)} dello stipendio previsto`;

@@ -1,11 +1,11 @@
-import { Component, computed, inject } from '@angular/core';
+import { Component, computed, effect, inject, signal, untracked } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
 import { MatSnackBar } from '@angular/material/snack-bar';
 import { Auth } from '../../core/auth';
 import { Ledger, monthLabel } from '../../core/ledger';
-import { centsToInput, parseSignedAmount } from '../../core/money';
+import { centsToInput, formatCents, parseSignedAmount } from '../../core/money';
 import { onlineSignal } from '../../core/online';
 import { Account, Category, errorText, supabase } from '../../core/supabase';
 import { Sync } from '../../core/sync';
@@ -49,6 +49,9 @@ async function clearDataCaches(): Promise<void> {
     <nav class="links" aria-label="Altre pagine">
       <a class="link" routerLink="/rubrica">Rubrica degli esercenti</a>
       <a class="link" routerLink="/ricorrenti">Ricorrenti</a>
+      <a class="link" routerLink="/debiti">Debiti e rate</a>
+      <a class="link" routerLink="/desideri">Lista dei desideri</a>
+      <a class="link" routerLink="/condivise">Spese condivise</a>
       <a class="link" routerLink="/regole">Regole notifiche</a>
     </nav>
 
@@ -95,6 +98,20 @@ async function clearDataCaches(): Promise<void> {
             <option value="" [selected]="!ledger.settings()?.savings_bucket_id">Nessuno</option>
             @for (b of ledger.buckets(); track b.id) {
               <option [value]="b.id" [selected]="b.id === ledger.settings()?.savings_bucket_id">{{ b.name }}</option>
+            }
+          </select>
+        </label>
+        <label>
+          Tasso annuo su conti e Salvadanaio (%), per la stima degli interessi
+          <input inputmode="decimal" placeholder="vuoto = nessuna stima" [value]="ledger.settings()?.interest_rate_pct ?? ''" (change)="setInterestRate(value($event))" />
+        </label>
+        <p class="note">La stima, al netto del 26% di ritenuta, compare nella previsione del mese come riga della categoria Interessi.</p>
+        <label>
+          Secchio dei desideri (il semaforo guarda quanto ne resta)
+          <select (change)="saveSettings({ wishlist_bucket_id: value($event) || null })">
+            <option value="" [selected]="!ledger.settings()?.wishlist_bucket_id">Nessuno</option>
+            @for (b of ledger.buckets(); track b.id) {
+              <option [value]="b.id" [selected]="b.id === ledger.settings()?.wishlist_bucket_id">{{ b.name }}</option>
             }
           </select>
         </label>
@@ -166,6 +183,7 @@ async function clearDataCaches(): Promise<void> {
             al
             <input type="date" [value]="a.balance_date ?? ''" (change)="update('accounts', a.id, { balance_date: value($event) || null })" />
           </label>
+          <p class="note">{{ currentText(a) }}</p>
           <label class="check">
             <input type="checkbox" [checked]="a.archived" (change)="update('accounts', a.id, { archived: checked($event) })" />
             Archiviato
@@ -309,6 +327,15 @@ export class Settings {
   private readonly snackBar = inject(MatSnackBar);
   protected readonly kinds = KINDS;
   protected readonly superCategories = computed(() => [...new Set(this.ledger.categories().flatMap((c) => c.super_category ?? []))].sort());
+  private readonly balances = signal(new Map<string | null, number | null>());
+
+  constructor() {
+    // Si ricarica quando cambiano i conti: dopo ogni salvataggio il Ledger li rilegge.
+    effect(() => {
+      this.ledger.accounts();
+      untracked(() => void this.loadBalances());
+    });
+  }
 
   protected newCategory = '';
   protected newKind: Category['kind'] = 'expense';
@@ -344,6 +371,8 @@ export class Settings {
     savings_pct?: number;
     savings_amount_cents?: number | null;
     savings_bucket_id?: string | null;
+    interest_rate_pct?: number | null;
+    wishlist_bucket_id?: string | null;
   }): Promise<void> {
     this.done(await supabase.from('settings').upsert(patch), 'Impostazione non salvata');
   }
@@ -396,6 +425,30 @@ export class Settings {
       return;
     }
     void this.saveSettings({ savings_pct: pct });
+  }
+
+  /** Vuoto = nessuna stima degli interessi. */
+  protected setInterestRate(text: string): void {
+    const pct = Number(text.replace(',', '.'));
+    if (text && !(pct >= 0 && pct <= 100)) {
+      this.invalid('Tasso non valido: da 0 a 100');
+      return;
+    }
+    void this.saveSettings({ interest_rate_pct: text ? pct : null });
+  }
+
+  /** Il saldo attuale è calcolato dal database: saldo di riferimento più i movimenti successivi alla sua data. */
+  protected currentText(a: Account): string {
+    if (a.archived) return 'Archiviato: non conta nel saldo totale.';
+    const current = this.balances().get(a.id);
+    return current == null
+      ? 'Inserisci il saldo reale e la sua data per vedere quello attuale.'
+      : `Saldo attuale: ${formatCents(current)} (il saldo qui sopra più i movimenti successivi)`;
+  }
+
+  private async loadBalances(): Promise<void> {
+    const res = await supabase.from('account_balances').select();
+    if (res.data) this.balances.set(new Map(res.data.map((b) => [b.account_id, b.current_cents])));
   }
 
   protected setBalance(a: Account, text: string): void {

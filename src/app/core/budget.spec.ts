@@ -1,4 +1,25 @@
-import { forecastToInput, inputToForecast } from './budget';
+import { bucketLeft, forecastToInput, inputToForecast } from './budget';
+import { MonthLine } from './supabase';
+
+describe('quanto resta di un secchio', () => {
+  const line = (bucket_id: string | null, forecast: number | null, actual: number) => ({ category_id: 'c', bucket_id, inflow: null, forecast, actual, n: 1, is_default: false }) as MonthLine;
+
+  it('previsto meno speso, sommando le righe del secchio', () => {
+    expect(bucketLeft([line('fun', -30000, -10000), line('fun', -5000, 0), line('altro', -99900, -1)], 'fun')).toBe(25000);
+  });
+
+  it('negativo se hai già sforato', () => {
+    expect(bucketLeft([line('fun', -10000, -12000)], 'fun')).toBe(-2000);
+  });
+
+  it('una spesa senza previsione toglie dal budget', () => {
+    expect(bucketLeft([line('fun', -10000, 0), line('fun', null, -3000)], 'fun')).toBe(7000);
+  });
+
+  it('senza righe non resta nulla', () => {
+    expect(bucketLeft([], 'fun')).toBe(0);
+  });
+});
 
 describe('previsione nei campi', () => {
   it.each([

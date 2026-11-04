@@ -1,6 +1,6 @@
 import { monthLabel, shiftMonth } from './ledger';
 import { centsToInput, parseSignedAmount } from './money';
-import { supabase } from './supabase';
+import { MonthLine, supabase } from './supabase';
 
 type Result = { error: { message: string } | null; status: number };
 
@@ -9,6 +9,11 @@ const ON_CONFLICT = 'user_id,month,category_id,bucket_id';
 /** Verso normale di una categoria: entrate positive, uscite e risparmi negativi. */
 export function kindSign(kind: string): number {
   return kind === 'income' ? 1 : -1;
+}
+
+/** Quanto resta di un secchio nel mese: previsto meno speso, con importi negativi; sotto zero se hai sforato. */
+export function bucketLeft(lines: MonthLine[], bucketId: string): number {
+  return lines.filter((l) => l.bucket_id === bucketId).reduce((sum, l) => sum + l.actual - (l.forecast ?? 0), 0);
 }
 
 /**

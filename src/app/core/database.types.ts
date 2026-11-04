@@ -113,14 +113,28 @@ isOneToOne: false
                   ]
                 },"categories": {
                   Row: {
-                    "archived": boolean,"created_at": string,"id": string,"is_salary": boolean,"kind": string,"name": string,"sort_order": number,"super_category": string | null,"user_id": string
+                    "archived": boolean,"created_at": string,"id": string,"is_interest": boolean,"is_salary": boolean,"kind": string,"name": string,"sort_order": number,"super_category": string | null,"user_id": string
                   }
                   ComputedFields: never
                   Insert: {
-                    "archived"?: boolean,"created_at"?: string,"id"?: string,"is_salary"?: boolean,"kind": string,"name": string,"sort_order"?: number,"super_category"?: string | null,"user_id"?: string
+                    "archived"?: boolean,"created_at"?: string,"id"?: string,"is_interest"?: boolean,"is_salary"?: boolean,"kind": string,"name": string,"sort_order"?: number,"super_category"?: string | null,"user_id"?: string
                   }
                   Update: {
-                    "archived"?: boolean,"created_at"?: string,"id"?: string,"is_salary"?: boolean,"kind"?: string,"name"?: string,"sort_order"?: number,"super_category"?: string | null,"user_id"?: string
+                    "archived"?: boolean,"created_at"?: string,"id"?: string,"is_interest"?: boolean,"is_salary"?: boolean,"kind"?: string,"name"?: string,"sort_order"?: number,"super_category"?: string | null,"user_id"?: string
+                  }
+                  Relationships: [
+                    
+                  ]
+                },"debts": {
+                  Row: {
+                    "created_at": string,"first_due_date": string,"id": string,"installment_cents": number,"n_installments": number,"name": string,"user_id": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "created_at"?: string,"first_due_date": string,"id"?: string,"installment_cents": number,"n_installments": number,"name": string,"user_id"?: string
+                  }
+                  Update: {
+                    "created_at"?: string,"first_due_date"?: string,"id"?: string,"installment_cents"?: number,"n_installments"?: number,"name"?: string,"user_id"?: string
                   }
                   Relationships: [
                     
@@ -217,6 +231,20 @@ isOneToOne: false
                   Relationships: [
                     
                   ]
+                },"people": {
+                  Row: {
+                    "created_at": string,"id": string,"name": string,"user_id": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "created_at"?: string,"id"?: string,"name": string,"user_id"?: string
+                  }
+                  Update: {
+                    "created_at"?: string,"id"?: string,"name"?: string,"user_id"?: string
+                  }
+                  Relationships: [
+                    
+                  ]
                 },"recurring_rules": {
                   Row: {
                     "account_id": string,"amount_cents": number,"bucket_id": string | null,"cancel_by": string | null,"category_id": string,"created_at": string,"end_date": string | null,"frequency": string,"generated_until": string,"id": string,"name": string,"start_date": string,"user_id": string
@@ -251,14 +279,14 @@ isOneToOne: false
                   ]
                 },"settings": {
                   Row: {
-                    "created_at": string,"go_live_month": string,"opening_residual_cents": number,"savings_amount_cents": number | null,"savings_bucket_id": string | null,"savings_pct": number,"user_id": string
+                    "created_at": string,"go_live_month": string,"interest_rate_pct": number | null,"opening_residual_cents": number,"savings_amount_cents": number | null,"savings_bucket_id": string | null,"savings_pct": number,"user_id": string,"wishlist_bucket_id": string | null
                   }
                   ComputedFields: never
                   Insert: {
-                    "created_at"?: string,"go_live_month"?: string,"opening_residual_cents"?: number,"savings_amount_cents"?: number | null,"savings_bucket_id"?: string | null,"savings_pct"?: number,"user_id"?: string
+                    "created_at"?: string,"go_live_month"?: string,"interest_rate_pct"?: number | null,"opening_residual_cents"?: number,"savings_amount_cents"?: number | null,"savings_bucket_id"?: string | null,"savings_pct"?: number,"user_id"?: string,"wishlist_bucket_id"?: string | null
                   }
                   Update: {
-                    "created_at"?: string,"go_live_month"?: string,"opening_residual_cents"?: number,"savings_amount_cents"?: number | null,"savings_bucket_id"?: string | null,"savings_pct"?: number,"user_id"?: string
+                    "created_at"?: string,"go_live_month"?: string,"interest_rate_pct"?: number | null,"opening_residual_cents"?: number,"savings_amount_cents"?: number | null,"savings_bucket_id"?: string | null,"savings_pct"?: number,"user_id"?: string,"wishlist_bucket_id"?: string | null
                   }
                   Relationships: [
                     {
@@ -266,6 +294,32 @@ isOneToOne: false
       columns: ["savings_bucket_id","user_id"]
 isOneToOne: false
       referencedRelation: "buckets"
+      referencedColumns: ["id","user_id"]
+    },{
+      foreignKeyName: "settings_wishlist_bucket_id_user_id_fkey"
+      columns: ["wishlist_bucket_id","user_id"]
+isOneToOne: false
+      referencedRelation: "buckets"
+      referencedColumns: ["id","user_id"]
+    }
+                  ]
+                },"shared_entries": {
+                  Row: {
+                    "amount_cents": number,"created_at": string,"description": string,"entry_date": string,"id": string,"person_id": string,"settled": boolean,"user_id": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "amount_cents": number,"created_at"?: string,"description": string,"entry_date"?: string,"id"?: string,"person_id": string,"settled"?: boolean,"user_id"?: string
+                  }
+                  Update: {
+                    "amount_cents"?: number,"created_at"?: string,"description"?: string,"entry_date"?: string,"id"?: string,"person_id"?: string,"settled"?: boolean,"user_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "shared_entries_person_id_user_id_fkey"
+      columns: ["person_id","user_id"]
+isOneToOne: false
+      referencedRelation: "people"
       referencedColumns: ["id","user_id"]
     }
                   ]
@@ -353,10 +407,44 @@ isOneToOne: false
       referencedColumns: ["id","user_id"]
     }
                   ]
+                },"wishlist_items": {
+                  Row: {
+                    "created_at": string,"id": string,"name": string,"note": string | null,"price_cents": number,"priority": number,"transaction_id": string | null,"user_id": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "created_at"?: string,"id"?: string,"name": string,"note"?: string | null,"price_cents": number,"priority"?: number,"transaction_id"?: string | null,"user_id"?: string
+                  }
+                  Update: {
+                    "created_at"?: string,"id"?: string,"name"?: string,"note"?: string | null,"price_cents"?: number,"priority"?: number,"transaction_id"?: string | null,"user_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "wishlist_items_transaction_id_user_id_fkey"
+      columns: ["transaction_id","user_id"]
+isOneToOne: false
+      referencedRelation: "transactions"
+      referencedColumns: ["id","user_id"]
+    }
+                  ]
                 }
           }
           Views: {
-            "merchant_inbox": {
+            "account_balances": {
+                  Row: {
+                    "account_id": string | null,"current_cents": number | null
+                  }
+                  ComputedFields: never
+                  Insert: {
+                           "account_id"?: string | null,"current_cents"?: never
+                         }
+                        Update: {
+                           "account_id"?: string | null,"current_cents"?: never
+                         }
+                        Relationships: [
+                    
+                  ]
+                },"merchant_inbox": {
                   Row: {
                     "example": string | null,"key": string | null,"last_date": string | null,"n": number | null
                   }
@@ -384,6 +472,14 @@ isOneToOne: false
       referencedColumns: ["id","user_id"]
     }
                   ]
+                },"person_balances": {
+                  Row: {
+                    "balance_cents": number | null,"person_id": string | null
+                  }
+                  ComputedFields: never
+                  Relationships: [
+                    
+                  ]
                 }
           }
           Functions: {
@@ -395,6 +491,11 @@ isOneToOne: false
                            },
 "create_transfer":
 { Args: { "p_amount_cents": number,"p_booking_date"?: string,"p_from": string,"p_id": string,"p_note"?: string,"p_to": string }; Returns: undefined
+                           },
+"debt_plan":
+{ Args: { "p_today"?: string }; Returns: {
+              "first_due_date": string,"id": string,"installment_cents": number,"last_due_date": string,"n_installments": number,"name": string,"next_due_date": string,"paid": number,"remaining_cents": number
+            }[]
                            },
 "due_in_month":
 { Args: { "p_day": number,"p_month": string }; Returns: string

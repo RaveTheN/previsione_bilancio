@@ -37,6 +37,8 @@ function month(lines: MonthLine[], start: number | null, end: number | null): Mo
     reserve_forecast: null,
     reserve_actual: null,
     buckets: [],
+    debt_cents: 0,
+    debt_pct: null,
   };
 }
 

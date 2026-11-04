@@ -15,8 +15,8 @@ from auth.users u,
   (values ('Future me', 1, 15), ('Fundamentals', 2, 50), ('Fun', 3, 35)) as b (name, ord, pct)
 on conflict do nothing;
 
-insert into public.categories (user_id, name, kind, is_salary, sort_order)
-select u.id, c.name, c.kind, c.name = 'Stipendio', c.ord
+insert into public.categories (user_id, name, kind, is_salary, is_interest, sort_order)
+select u.id, c.name, c.kind, c.name = 'Stipendio', c.name = 'Interessi', c.ord
 from auth.users u,
   (values
     ('Stipendio', 'income', 1),

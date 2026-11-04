@@ -4,7 +4,7 @@ import { MatButtonModule } from '@angular/material/button';
 import { MAT_BOTTOM_SHEET_DATA, MatBottomSheet, MatBottomSheetRef } from '@angular/material/bottom-sheet';
 import { MatSnackBar } from '@angular/material/snack-bar';
 import { Ledger, todayIso } from '../../core/ledger';
-import { parseAmount } from '../../core/money';
+import { centsToInput, parseAmount } from '../../core/money';
 import { PendingOp } from '../../core/queue';
 import { errorText, isGenericOperation, supabase, Transaction } from '../../core/supabase';
 import { Sync } from '../../core/sync';
@@ -91,7 +91,7 @@ function editable(t: Transaction): Record<string, unknown> {
         </div>
       }
 
-      <details [open]="!!tx">
+      <details [open]="!!tx || !!draft">
         <summary>Altro</summary>
         <label>
           Conto
@@ -234,7 +234,9 @@ export class QuickAdd {
   protected readonly ledger = inject(Ledger);
   private readonly sync = inject(Sync);
   private readonly ref = inject(MatBottomSheetRef<QuickAdd, Saved>);
-  protected readonly tx = inject<{ tx?: Transaction }>(MAT_BOTTOM_SHEET_DATA)?.tx;
+  private readonly data = inject<{ tx?: Transaction; draft?: Draft }>(MAT_BOTTOM_SHEET_DATA);
+  protected readonly tx = this.data?.tx;
+  protected readonly draft = this.data?.draft;
 
   protected readonly income = signal(false);
   protected readonly amountText = signal('');
@@ -285,6 +287,11 @@ export class QuickAdd {
       const last = String(readMap(ACCOUNT_KEY)['id'] ?? '');
       const accounts = this.activeAccounts();
       this.accountId = accounts.find((a) => a.id === last)?.id ?? accounts.find((a) => a.role === 'spendable')?.id ?? '';
+      if (this.draft) {
+        this.amountText.set(centsToInput(this.draft.cents));
+        this.note = this.draft.note;
+        this.bucketId.set(this.draft.bucketId);
+      }
     }
   }
 
@@ -388,7 +395,7 @@ export class QuickAdd {
     const wasUnassigned = !before || (before.kind !== 'income' && !this.tx?.bucket_id);
     const propagate = this.hasMerchant && wasUnassigned && !!row.category_id;
     const name = this.merchantName.trim();
-    this.ref.dismiss({ undo, propagate, merchantName: name && name !== this.initialMerchantName ? name : null });
+    this.ref.dismiss({ id, undo, propagate, merchantName: name && name !== this.initialMerchantName ? name : null });
   }
 
   protected remove(): void {
@@ -399,11 +406,19 @@ export class QuickAdd {
       this.error.set('Non eliminato: ' + (e instanceof Error ? e.message : String(e)));
       return;
     }
-    this.ref.dismiss({ undo: restoreOps(this.tx), propagate: false, merchantName: null });
+    this.ref.dismiss({ id: this.tx.id, undo: restoreOps(this.tx), propagate: false, merchantName: null });
   }
 }
 
+/** Valori iniziali di un movimento nuovo, es. un desiderio appena comprato. */
+export interface Draft {
+  cents: number;
+  note: string;
+  bucketId: string | null;
+}
+
 interface Saved {
+  id: string;
   undo: PendingOp[];
   /** Dopo l'invio, assegna come questo gli altri movimenti dello stesso esercente. */
   propagate: boolean;
@@ -435,17 +450,18 @@ export class QuickAddLauncher {
   private readonly sync = inject(Sync);
   private readonly ledger = inject(Ledger);
 
-  open(tx?: Transaction): void {
+  open(tx?: Transaction, draft?: Draft, onSaved?: (id: string) => void): void {
     this.sheet
-      .open<QuickAdd, { tx?: Transaction }, Saved>(QuickAdd, {
-        data: { tx },
-        autoFocus: tx ? 'dialog' : 'input[name=amount]',
+      .open<QuickAdd, { tx?: Transaction; draft?: Draft }, Saved>(QuickAdd, {
+        data: { tx, draft },
+        autoFocus: tx || draft ? 'dialog' : 'input[name=amount]',
       })
       .afterDismissed()
       .subscribe((saved) => {
         if (!saved) return;
         this.confirm(tx ? 'Salvato' : 'Aggiunto', saved.undo);
         if (tx && (saved.propagate || saved.merchantName)) void this.afterSave(tx, saved);
+        onSaved?.(saved.id);
       });
   }
 

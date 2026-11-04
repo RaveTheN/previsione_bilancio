@@ -22,6 +22,10 @@ export type MerchantAlias = Tables['merchant_aliases']['Row'];
 export type ParseRule = Tables['parse_rules']['Row'];
 export type RecurringRule = Tables['recurring_rules']['Row'];
 export type BudgetLine = Tables['budget_lines']['Row'];
+export type WishlistItem = Tables['wishlist_items']['Row'];
+export type Person = Tables['people']['Row'];
+export type SharedEntry = Tables['shared_entries']['Row'];
+export type DebtPlan = Database['public']['Functions']['debt_plan']['Returns'][number];
 export type InboxName = Database['public']['Views']['merchant_inbox']['Row'];
 
 /** Riga di month_overview: categoria e secchio, con previsione ed effettivo del mese. */
@@ -57,6 +61,9 @@ export interface MonthOverview {
   reserve_actual: number | null;
   /** Percentuali sullo stipendio; null quando lo stipendio manca. */
   buckets: { bucket_id: string; target_pct: number; forecast_pct: number | null; actual_pct: number | null }[];
+  /** Le rate che cadono nel mese e il loro peso sullo stipendio; null quando lo stipendio manca. */
+  debt_cents: number;
+  debt_pct: number | null;
 }
 
 /** Bonifici e addebiti PayPal non sono esercenti: si assegnano uno per uno (stessa regola di merchant_key nel database). */
