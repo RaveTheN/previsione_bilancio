@@ -1,7 +1,7 @@
 -- Fase 9: saldo attuale, interessi, debiti, wishlist, spese condivise. Dati finti.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(28);
+select plan(29);
 
 insert into auth.users (id, email) values
   ('00000000-0000-0000-0000-00000000000a', 'a@example.com'),
@@ -99,6 +99,17 @@ select is(
   'e nel residuo previsto del mese dopo'
 );
 update public.settings set interest_rate_pct = null;
+
+-- Un rimborso su una categoria di spesa si sottrae dalle uscite, senza gonfiare le entrate.
+insert into public.transactions (account_id, category_id, bucket_id, amount_cents, booking_date) values
+  ('10000000-0000-0000-0000-000000000004', '30000000-0000-0000-0000-000000000003', '20000000-0000-0000-0000-000000000001', -11631, '2026-08-05'),
+  ('10000000-0000-0000-0000-000000000004', '30000000-0000-0000-0000-000000000003', '20000000-0000-0000-0000-000000000001', 3877, '2026-08-07');
+select results_eq(
+  $$ select (public.month_overview('2026-08-01', '2026-11-15') ->> 'expense_actual')::bigint,
+            (public.month_overview('2026-08-01', '2026-11-15') ->> 'income_actual')::bigint $$,
+  $$ values (-7754::bigint, 0::bigint) $$,
+  'un rimborso sulla categoria di spesa riduce le uscite e non conta come entrata'
+);
 
 -- Debiti
 select results_eq(

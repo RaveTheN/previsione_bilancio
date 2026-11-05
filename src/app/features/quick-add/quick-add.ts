@@ -81,7 +81,7 @@ function editable(t: Transaction): Record<string, unknown> {
         }
       </div>
 
-      @if (!income()) {
+      @if (needsBucket()) {
         <div class="segmented" role="group" aria-label="Secchio">
           @for (b of ledger.buckets(); track b.id) {
             <button type="button" [class.on]="bucketId() === b.id" [attr.aria-pressed]="bucketId() === b.id" (click)="toggleBucket(b.id)">
@@ -256,13 +256,20 @@ export class QuickAdd {
   protected readonly amountCents = computed(() => parseAmount(this.amountText()));
   protected readonly activeAccounts = computed(() => this.ledger.accounts().filter((a) => !a.archived));
 
+  /** Un'entrata può stare su una categoria di spesa, come un rimborso: il secchio dipende dalla categoria, non dal verso. */
+  protected readonly needsBucket = computed(() => {
+    const kind = this.ledger.categoryById().get(this.categoryId() ?? '')?.kind;
+    return kind ? kind !== 'income' : !this.income();
+  });
+
   private readonly candidates = computed(() => {
     const usage = readMap(USAGE_KEY);
-    const kinds = this.income() ? ['income'] : ['expense', 'saving'];
+    // Per un'entrata prima le categorie di entrata, poi le altre per i rimborsi.
+    const first = (kind: string) => Number(this.income() && kind === 'income');
     return this.ledger
       .categories()
-      .filter((c) => kinds.includes(c.kind) && !c.archived)
-      .sort((a, b) => (Number(usage[b.id] ?? 0) - Number(usage[a.id] ?? 0)) || a.sort_order - b.sort_order);
+      .filter((c) => !c.archived && (this.income() || c.kind !== 'income'))
+      .sort((a, b) => first(b.kind) - first(a.kind) || (Number(usage[b.id] ?? 0) - Number(usage[a.id] ?? 0)) || a.sort_order - b.sort_order);
   });
   protected readonly shownCategories = computed(() =>
     this.showAll() ? this.candidates() : this.candidates().slice(0, 8),
@@ -276,6 +283,8 @@ export class QuickAdd {
       this.amountText.set((Math.abs(t.amount_cents) / 100).toFixed(2).replace('.', ','));
       this.categoryId.set(t.category_id);
       this.bucketId.set(t.bucket_id);
+      // La categoria di un rimborso sta tra le "Altre": deve restare visibile riaprendo il movimento.
+      this.showAll.set(t.amount_cents > 0 && this.needsBucket() && !!t.category_id);
       this.accountId = t.account_id;
       this.date = t.booking_date;
       this.note = t.note ?? '';
@@ -305,7 +314,7 @@ export class QuickAdd {
   protected pickCategory(id: string): void {
     this.categoryId.set(id);
     // Proposta, non regola: il secchio resta visibile e lo cambi con un tocco.
-    if (!this.income()) this.bucketId.set((readMap(BUCKET_KEY)[id] as string | undefined) ?? this.bucketId());
+    this.bucketId.set(this.needsBucket() ? ((readMap(BUCKET_KEY)[id] as string | undefined) ?? this.bucketId()) : null);
   }
 
   protected toggleBucket(id: string): void {
@@ -342,7 +351,7 @@ export class QuickAdd {
       id,
       account_id: this.accountId,
       category_id: this.categoryId(),
-      bucket_id: this.income() ? null : this.bucketId(),
+      bucket_id: this.needsBucket() ? this.bucketId() : null,
       amount_cents: signed,
       booking_date: this.date,
       occurred_at: occurredAt,
