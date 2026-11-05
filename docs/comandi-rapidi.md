@@ -1,9 +1,10 @@
 # Comandi Rapidi: le notifiche della banca diventano movimenti
 
-Servono tre pezzi sull'iPhone:
+Servono quattro pezzi sull'iPhone:
 
 - il comando **"Bilancio · Invia"**, che mette in coda ogni notifica e la invia;
 - l'automazione sulla **notifica BBVA**;
+- l'automazione sulla **notifica PayPal**;
 - l'automazione serale che **svuota la coda**.
 
 Le etichette delle azioni possono essere leggermente diverse nella tua versione di iOS.
@@ -70,20 +71,42 @@ Automazione → nuova → **Notifica** → app **BBVA** → **Esegui immediatame
 
 6. *Esegui comando rapido* "Bilancio · Invia", con il dizionario come input.
 
-### La stessa automazione per PayPal
+## 3. Automazione sulla notifica PayPal
 
-Crea un'altra automazione **Notifica** → app **PayPal** → **Esegui immediatamente**, uguale a quella della BBVA, con due differenze:
+Usa lo stesso comando "Bilancio · Invia" e lo stesso token: lì non cambia nulla. Prima controlla in Altro → **Regole notifiche** che ci siano le tre regole di PayPal; se mancano, riesegui `docs/setup-iniziale.sql` nello SQL Editor.
 
-- al passo 1 aggiungi anche `code` tra le parole che fermano il comando: i testi di PayPal sono in inglese. Il server scarta comunque i codici di sicurezza, anche in inglese;
-- nel dizionario, `app` è il testo fisso `PayPal`.
+Automazione → nuova → **Notifica** → app **PayPal** → **Esegui immediatamente**, senza filtri sul testo.
+
+1. *Se* "Messaggio" contiene `codice`, `code`, `OTP`, `password` o `accesso`: *Interrompi questo comando*. `code` c'è perché i testi di PayPal sono in inglese; il server scarta comunque i codici di sicurezza, anche in inglese.
+2. *Data attuale*:
+   - → *Formatta data* in **ISO 8601**, con ora → variabile `Quando`;
+   - → *Formatta data* personalizzato `yyyyMMddHHmmssSSS`.
+3. *Numero casuale* tra 1000 e 9999.
+4. *Testo* `[data formattata]-[numero casuale]` → variabile `ID`.
+5. *Dizionario* con:
+
+   | Chiave | Valore |
+   |---|---|
+   | `event_id` | `ID` |
+   | `occurred_at` | `Quando` |
+   | `app` | il testo fisso `PayPal` |
+   | `title` | Notifica › Titolo |
+   | `subtitle` | Notifica › Sottotitolo |
+   | `body` | Notifica › Messaggio |
+
+6. *Esegui comando rapido* "Bilancio · Invia", con il dizionario come input.
+
+Il titolo serve: PayPal scrive lì il nome del negozio e nel messaggio l'importo.
+
+Una notifica PayPal e una della BBVA per lo stesso pagamento diventano un movimento solo, in qualunque ordine arrivino. Un pagamento solo "autorizzato" resta in **Da rivedere** finché non arriva l'addebito: non toccare "Va bene così" prima, o l'addebito creerà un secondo movimento.
+
+Il filtro del passo 1 è ampio: ferma anche una notifica che contiene `code` per caso, per esempio nel nome di un negozio. Se il pagamento è passato dalla carta, entra comunque dalla notifica della BBVA.
 
 Non serve un'automazione per Vinted: le sue notifiche sono solo avvisi di consegna, senza importi.
 
-Una notifica PayPal e una della BBVA per lo stesso pagamento diventano un movimento solo, in qualunque ordine arrivino. Un pagamento solo "autorizzato" resta in **Da rivedere** finché non arriva l'addebito.
-
 Per un'altra app con importi: crea la sua automazione nello stesso modo e aggiungi le sue regole da Altro → **Regole notifiche**, dove le provi sulle notifiche già ricevute.
 
-## 3. Automazione "Svuota coda"
+## 4. Automazione "Svuota coda"
 
 Automazione → **Ora del giorno** (ogni giorno alle 21:00) → **Esegui immediatamente** → *Esegui comando rapido* "Bilancio · Invia", senza input.
 
@@ -92,6 +115,7 @@ Automazione → **Ora del giorno** (ogni giorno alle 21:00) → **Esegui immedia
 1. Fai un pagamento piccolo con la carta: entro qualche secondo il movimento compare in Movimenti, con l'esercente della banca.
 2. Se la notifica non viene riconosciuta, finisce in **Da rivedere** con il testo originale.
 3. Le notifiche già registrate a mano, o arrivate due volte con modelli diversi, non creano doppioni.
+4. Paga qualcosa con PayPal: deve comparire un solo movimento, anche se arrivano sia la notifica PayPal sia quella della BBVA.
 
 ## Risposte del server
 
