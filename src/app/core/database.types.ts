@@ -193,14 +193,14 @@ isOneToOne: false
                   ]
                 },"merchants": {
                   Row: {
-                    "created_at": string,"default_bucket_id": string | null,"default_category_id": string | null,"id": string,"name": string,"user_id": string
+                    "ask_each_time": boolean,"created_at": string,"default_bucket_id": string | null,"default_category_id": string | null,"id": string,"name": string,"user_id": string
                   }
                   ComputedFields: never
                   Insert: {
-                    "created_at"?: string,"default_bucket_id"?: string | null,"default_category_id"?: string | null,"id"?: string,"name": string,"user_id"?: string
+                    "ask_each_time"?: boolean,"created_at"?: string,"default_bucket_id"?: string | null,"default_category_id"?: string | null,"id"?: string,"name": string,"user_id"?: string
                   }
                   Update: {
-                    "created_at"?: string,"default_bucket_id"?: string | null,"default_category_id"?: string | null,"id"?: string,"name"?: string,"user_id"?: string
+                    "ask_each_time"?: boolean,"created_at"?: string,"default_bucket_id"?: string | null,"default_category_id"?: string | null,"id"?: string,"name"?: string,"user_id"?: string
                   }
                   Relationships: [
                     {

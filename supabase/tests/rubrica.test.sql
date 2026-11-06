@@ -1,7 +1,7 @@
 -- Fase 3b: Rubrica e assegnazione per esercente. Nomi finti, formati come quelli reali.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(16);
+select plan(19);
 
 insert into auth.users (id, email) values
   ('00000000-0000-0000-0000-00000000000a', 'a@example.com'),
@@ -150,6 +150,31 @@ select results_eq(
      where t.user_id = '00000000-0000-0000-0000-00000000000a' and t.source = 'notification' $$,
   $$ values ('Bar Esempio Music B', '30000000-0000-0000-0000-000000000002'::uuid, '20000000-0000-0000-0000-000000000002'::uuid) $$,
   'notifica: esercente riconosciuto, categoria e secchio dalla regola'
+);
+
+-- Esercente che varia: "chiedi ogni volta" toglie il secchio dalla regola e ferma la propagazione.
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-0000-0000-00000000000a","role":"authenticated"}', true);
+select throws_ok(
+  $$ update public.merchants set ask_each_time = true where name = 'Bar Esempio Music B' $$,
+  '23514', null,
+  'chiedi ogni volta: la regola non può avere un secchio'
+);
+update public.merchants set ask_each_time = true, default_bucket_id = null where name = 'Bar Esempio Music B';
+insert into public.transactions (id, account_id, amount_cents, booking_date, merchant_raw) values
+  ('60000000-0000-0000-0000-000000000009', '10000000-0000-0000-0000-000000000001', -1200, '2026-10-20', 'BAR ESEMPIO MUSIC B'),
+  ('60000000-0000-0000-0000-000000000010', '10000000-0000-0000-0000-000000000001', -1300, '2026-10-21', 'BAR ESEMPIO MUSIC B');
+update public.transactions set bucket_id = '20000000-0000-0000-0000-000000000001' where id = '60000000-0000-0000-0000-000000000009';
+select is(
+  public.assign_like('60000000-0000-0000-0000-000000000009'),
+  null::jsonb,
+  'chiedi ogni volta: assegnare un movimento non propaga'
+);
+select results_eq(
+  $$ select t.category_id, t.bucket_id, m.default_bucket_id from public.transactions t join public.merchants m on m.id = t.merchant_id
+     where t.id = '60000000-0000-0000-0000-000000000010' $$,
+  $$ values ('30000000-0000-0000-0000-000000000002'::uuid, null::uuid, null::uuid) $$,
+  'chiedi ogni volta: l''altro movimento ha la categoria della regola, il secchio resta da scegliere e la regola non cambia'
 );
 
 -- Utente B: non vede la Rubrica di A e non può propagare sui suoi movimenti.

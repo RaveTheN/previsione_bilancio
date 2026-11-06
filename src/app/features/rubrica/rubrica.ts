@@ -66,10 +66,18 @@ import { errorText, InboxName, Merchant, MerchantAlias, supabase } from '../../c
       <section>
         <h2>Esercenti</h2>
         <p class="note">Categoria e secchio valgono subito per i movimenti ancora da assegnare e per quelli nuovi: quelli già assegnati non cambiano.</p>
+        <p class="note">
+          Per un esercente che cambia da un acquisto all'altro (es. Amazon, a volte Fun e a volte Fundamentals) scegli «Chiedi ogni volta»:
+          ogni suo movimento resta da assegnare finché non scegli tu il secchio, e assegnarne uno non tocca gli altri.
+        </p>
         <ul>
           @for (m of ledger.merchants(); track m.id) {
             <li>
               <input [value]="m.name" aria-label="Nome dell'esercente" (change)="update(m, { name: value($event) })" />
+              <label class="check">
+                <input type="checkbox" [checked]="m.ask_each_time" (change)="setAsk(m, $event)" />
+                Chiedi ogni volta (cambia da un acquisto all'altro)
+              </label>
               <div class="row">
                 <select aria-label="Categoria predefinita" (change)="setCategory(m, value($event))">
                   <option value="" [selected]="!m.default_category_id">Nessuna categoria</option>
@@ -77,7 +85,7 @@ import { errorText, InboxName, Merchant, MerchantAlias, supabase } from '../../c
                     <option [value]="c.id" [selected]="c.id === m.default_category_id">{{ c.name }}</option>
                   }
                 </select>
-                @if (ledger.categoryById().get(m.default_category_id ?? '')?.kind !== 'income') {
+                @if (!m.ask_each_time && ledger.categoryById().get(m.default_category_id ?? '')?.kind !== 'income') {
                   <select aria-label="Secchio predefinito" (change)="setBucket(m, value($event))">
                     <option value="" [selected]="!m.default_bucket_id">Nessun secchio</option>
                     @for (b of ledger.buckets(); track b.id) {
@@ -296,6 +304,12 @@ export class Rubrica implements OnInit {
     if (await this.update(m, { default_category_id: categoryId || null, default_bucket_id: bucketId })) {
       await this.applyRule(m, categoryId || null, bucketId);
     }
+  }
+
+  /** Chiedi ogni volta: la regola perde il secchio; la categoria, se c'è, resta. */
+  protected setAsk(m: Merchant, e: Event): void {
+    const ask = (e.target as HTMLInputElement).checked;
+    void this.update(m, ask ? { ask_each_time: true, default_bucket_id: null } : { ask_each_time: false });
   }
 
   protected async setBucket(m: Merchant, bucketId: string): Promise<void> {
