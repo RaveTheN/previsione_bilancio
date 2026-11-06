@@ -7,7 +7,7 @@ import { currentMonth, Ledger, monthLabel, shiftMonth } from '../../core/ledger'
 import { copyForecast, forecastToInput, inputToForecast, signedText, writeForecast } from '../../core/budget';
 import { diffTone, formatCents } from '../../core/money';
 import { onlineSignal } from '../../core/online';
-import { Category, errorText, MonthLine } from '../../core/supabase';
+import { Category, errorText, MonthLine, MonthOverview } from '../../core/supabase';
 import { Sync } from '../../core/sync';
 import { MonthHeader, SwipeMonth } from '../../shared/month-header';
 import { QuickAddLauncher } from '../quick-add/quick-add';
@@ -20,13 +20,14 @@ interface Row extends MonthLine {
 
 interface Group {
   title: string;
+  /** Percentuali del secchio sullo stipendio; assente per le entrate. */
+  stat: MonthOverview['buckets'][number] | undefined;
   rows: Row[];
   forecast: number;
   actual: number;
 }
 
 const percent = new Intl.NumberFormat('it-IT', { style: 'percent', maximumFractionDigits: 1 });
-const TONE_WORD = { better: 'meglio', worse: 'peggio', even: 'in linea' };
 
 @Component({
   selector: 'app-month',
@@ -112,26 +113,6 @@ const TONE_WORD = { better: 'meglio', worse: 'peggio', even: 'in linea' };
         </section>
       }
 
-      @if (bucketStats().length) {
-        <section class="card" aria-label="Secchi sullo stipendio">
-          @for (b of bucketStats(); track b.bucket_id) {
-            <div class="bucket">
-              <div class="line">
-                <span>{{ b.name }}</span>
-                <span>{{ pct(future() ? b.forecast_pct : b.actual_pct) }}</span>
-              </div>
-              <div class="bar" aria-hidden="true">
-                <span [style.width.%]="clamp(future() ? b.forecast_pct : b.actual_pct)"></span>
-                <i [style.left.%]="clamp(b.target_pct)"></i>
-              </div>
-              <span class="sub">
-                Obiettivo {{ pct(b.target_pct) }} · previsto {{ pct(b.forecast_pct) }}{{ future() ? '' : ' · reale ' + pct(b.actual_pct) }}
-              </span>
-            </div>
-          }
-        </section>
-      }
-
       @if (o.debt_cents) {
         <a class="card debt" routerLink="/debiti">
           <span class="label">Rate del mese</span>
@@ -147,29 +128,59 @@ const TONE_WORD = { better: 'meglio', worse: 'peggio', even: 'in linea' };
       }
 
       <div class="actions">
-        <button mat-stroked-button type="button" [attr.aria-pressed]="editing()" (click)="editing.set(!editing())">
-          {{ editing() ? 'Fine' : 'Modifica previsione' }}
-        </button>
         <button mat-stroked-button type="button" (click)="launcher.openTransfer()">Trasferisci</button>
         <a mat-stroked-button routerLink="/grafici">Grafici</a>
       </div>
 
-      @if (editing() && !online()) {
+      @if (!online()) {
         <p class="warn" role="status">Sei offline: la previsione si modifica solo con la connessione.</p>
       }
 
-      <fieldset [disabled]="editing() && (!online() || busy())">
-        @for (g of groups(); track g.title) {
-          <section>
-            <h2>
-              <span>{{ g.title }}</span><span>{{ fmt(future() || editing() ? g.forecast : g.actual) }}</span>
-            </h2>
-            <ul>
-              @for (r of g.rows; track r.category_id + '/' + r.bucket_id) {
-                <li>
-                  <div class="line">
-                    <span>{{ r.cat!.name }}</span>
-                    @if (editing()) {
+      <fieldset [disabled]="!online() || busy()">
+        @if (groups().length) {
+          <table class="grid">
+            <thead>
+              <tr>
+                <td></td>
+                <th scope="col">Previsto</th>
+                @if (!future()) {
+                  <th scope="col">Effettivo</th>
+                }
+              </tr>
+            </thead>
+            @for (g of groups(); track g.title) {
+              <tbody>
+                <tr class="group">
+                  <th scope="rowgroup">
+                    {{ g.title }}
+                    @if (g.stat) {
+                      <span class="sub">obiettivo {{ pct(g.stat.target_pct) }}</span>
+                    }
+                  </th>
+                  <td>
+                    {{ fmt(g.forecast) }}
+                    @if (g.stat) {
+                      <span class="sub">{{ pct(g.stat.forecast_pct) }}</span>
+                    }
+                  </td>
+                  @if (!future()) {
+                    <td>
+                      {{ fmt(g.actual) }}
+                      @if (g.stat) {
+                        <span class="sub">{{ pct(g.stat.actual_pct) }}</span>
+                      }
+                    </td>
+                  }
+                </tr>
+                @for (r of g.rows; track r.category_id + '/' + r.bucket_id) {
+                  <tr>
+                    <th scope="row">
+                      {{ r.cat!.name }}
+                      @if (r.is_default) {
+                        <span class="sub">{{ defaultText(r) }}</span>
+                      }
+                    </th>
+                    <td>
                       <input
                         inputmode="decimal"
                         autocomplete="off"
@@ -178,36 +189,23 @@ const TONE_WORD = { better: 'meglio', worse: 'peggio', even: 'in linea' };
                         [placeholder]="placeholder(r)"
                         (change)="setForecast(r, $event)"
                       />
-                    } @else {
-                      <span>{{ future() ? fmtN(r.forecast) : fmt(r.actual) }}</span>
+                    </td>
+                    @if (!future()) {
+                      <!-- Mai solo il colore: la freccia dice se è meglio o peggio del previsto. -->
+                      <td [class]="tone(r)">{{ fmt(r.actual) }}{{ arrow(r) }}</td>
                     }
-                  </div>
-                  @if (editing()) {
-                    @if (r.is_default) {
-                      <span class="sub">{{ defaultText(r) }}</span>
-                    }
-                  } @else if (!future()) {
-                    <div class="bar" aria-hidden="true">
-                      <span [class]="tone(r)" [style.width.%]="fill(r)"></span>
-                    </div>
-                    <span class="sub">
-                      Previsto {{ fmtN(r.forecast) }} ·
-                      <span [class]="tone(r)">{{ tone(r) === 'better' ? '↑' : tone(r) === 'worse' ? '↓' : '=' }} {{ diffText(r) }}</span>
-                    </span>
-                  }
-                </li>
-              }
-            </ul>
-          </section>
-        } @empty {
-          @if (!unassigned().n && !editing()) {
-            <p class="note">Nessun movimento né previsione in questo mese.</p>
-          }
+                  </tr>
+                }
+              </tbody>
+            }
+          </table>
+        } @else if (!unassigned().n) {
+          <p class="note">Nessun movimento né previsione in questo mese: aggiungi una riga qui sotto.</p>
         }
 
-        @if (editing()) {
-          <form class="tool" (ngSubmit)="addLine()">
-            <h2>Aggiungi una riga</h2>
+        <details class="tool">
+          <summary>Aggiungi una riga</summary>
+          <form (ngSubmit)="addLine()">
             <select name="category" aria-label="Categoria" [ngModel]="newCategory()" (ngModelChange)="newCategory.set($event)">
               <option value="">Categoria</option>
               @for (c of activeCategories(); track c.id) {
@@ -225,9 +223,11 @@ const TONE_WORD = { better: 'meglio', worse: 'peggio', even: 'in linea' };
             <input name="amount" inputmode="decimal" autocomplete="off" placeholder="0,00" aria-label="Importo" [(ngModel)]="newAmount" />
             <button mat-stroked-button type="submit">Aggiungi</button>
           </form>
+        </details>
 
-          <form class="tool" (ngSubmit)="copy()">
-            <h2>Copia nei mesi successivi</h2>
+        <details class="tool">
+          <summary>Copia nei mesi successivi</summary>
+          <form (ngSubmit)="copy()">
             <label>
               Fino a
               <select name="until" [(ngModel)]="copyUntil">
@@ -239,7 +239,7 @@ const TONE_WORD = { better: 'meglio', worse: 'peggio', even: 'in linea' };
             </label>
             <button mat-stroked-button type="submit" [disabled]="!copyUntil">Copia</button>
           </form>
-        }
+        </details>
       </fieldset>
     }
   `,
@@ -301,47 +301,50 @@ const TONE_WORD = { better: 'meglio', worse: 'peggio', even: 'in linea' };
       font: var(--mat-sys-body-small);
       color: var(--mat-sys-on-surface-variant);
     }
-    .line {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      gap: 12px;
-      min-height: 40px;
+    /* La tabella delle voci, come nel foglio: voce, previsto (si scrive nella cella), effettivo. */
+    .grid th,
+    .grid td {
+      padding: 2px 0 2px 8px;
+      vertical-align: middle;
     }
-    .bucket {
-      display: grid;
-      gap: 4px;
+    .grid th[scope='row'],
+    .grid th[scope='rowgroup'] {
+      padding-left: 0;
+      text-align: left;
+      white-space: normal;
     }
-    .bar {
-      position: relative;
-      height: 6px;
-      border-radius: 3px;
-      background: var(--mat-sys-surface-container-highest);
+    .grid tr:not(.group) {
+      border-bottom: 1px solid var(--mat-sys-outline-variant);
     }
-    .bar span {
+    .grid .group > * {
+      padding-top: 16px;
+      vertical-align: bottom;
+      font: var(--mat-sys-title-small);
+    }
+    .grid .sub {
       display: block;
-      height: 100%;
-      max-width: 100%;
-      border-radius: 3px;
-      background: var(--mat-sys-primary);
+      font-weight: normal;
     }
-    .bar i {
-      position: absolute;
-      top: -3px;
-      width: 2px;
-      height: 12px;
-      background: var(--mat-sys-on-surface);
+    .grid input {
+      box-sizing: border-box;
+      width: 6.5em;
+      min-height: 40px;
+      border-color: transparent;
+      background: var(--mat-sys-surface-container-high);
+      font: var(--mat-sys-body-medium);
+      text-align: right;
     }
-    .bar .worse {
-      background: var(--mat-sys-error);
+    .grid input:focus {
+      border-color: var(--mat-sys-primary);
     }
-    .bar .better {
-      background: var(--better);
+    .grid input::placeholder {
+      color: var(--mat-sys-on-surface-variant);
+      font-style: italic;
     }
-    .sub .worse {
+    .grid .worse {
       color: var(--mat-sys-error);
     }
-    .sub .better {
+    .grid .better {
       color: var(--better);
     }
     .unassigned {
@@ -364,23 +367,6 @@ const TONE_WORD = { better: 'meglio', worse: 'peggio', even: 'in linea' };
     .actions a {
       min-height: 44px;
     }
-    h2 {
-      display: flex;
-      justify-content: space-between;
-      margin: 0 0 4px;
-      font: var(--mat-sys-title-small);
-    }
-    ul {
-      margin: 0;
-      padding: 0;
-      list-style: none;
-    }
-    li {
-      display: grid;
-      gap: 4px;
-      padding: 6px 0;
-      border-bottom: 1px solid var(--mat-sys-outline-variant);
-    }
     input,
     select {
       min-height: 44px;
@@ -391,11 +377,14 @@ const TONE_WORD = { better: 'meglio', worse: 'peggio', even: 'in linea' };
       color: var(--mat-sys-on-surface);
       font: var(--mat-sys-body-large);
     }
-    .line input {
-      width: 8em;
-      text-align: right;
+    .tool summary {
+      display: flex;
+      align-items: center;
+      min-height: 44px;
+      font: var(--mat-sys-title-small);
+      cursor: pointer;
     }
-    .tool {
+    .tool form {
       display: grid;
       gap: 8px;
     }
@@ -428,7 +417,6 @@ export class Month {
   protected readonly ov = this.ledger.overview;
   /** Nei mesi futuri non c'è un effettivo da mostrare: solo la previsione. */
   protected readonly future = computed(() => this.ledger.month() > currentMonth());
-  protected readonly editing = signal(false);
   protected readonly busy = signal(false);
   protected readonly newCategory = signal('');
   protected newBucket = '';
@@ -452,20 +440,16 @@ export class Month {
 
   /** Entrate, poi un gruppo per secchio (uscite e risparmi), con le righe nell'ordine delle categorie. */
   protected readonly groups = computed<Group[]>(() => {
-    const group = (title: string, keep: (r: Row) => boolean): Group => {
+    const group = (title: string, bucketId: string | null, keep: (r: Row) => boolean): Group => {
       const rows = this.rows()
         .filter((r) => !r.unassigned && keep(r))
         .sort((a, b) => a.cat!.sort_order - b.cat!.sort_order || a.cat!.name.localeCompare(b.cat!.name));
       const forecast = rows.reduce((s, r) => s + (r.forecast ?? 0), 0);
-      return { title, rows, forecast, actual: rows.reduce((s, r) => s + r.actual, 0) };
+      const stat = this.ov()?.buckets.find((s) => s.bucket_id === bucketId);
+      return { title, stat, rows, forecast, actual: rows.reduce((s, r) => s + r.actual, 0) };
     };
-    const buckets = this.ledger.buckets().map((b) => group(b.name, (r) => r.kind !== 'income' && r.bucket_id === b.id));
-    return [group('Entrate', (r) => r.kind === 'income'), ...buckets].filter((g) => g.rows.length);
-  });
-
-  protected readonly bucketStats = computed(() => {
-    const names = this.ledger.bucketById();
-    return (this.ov()?.buckets ?? []).map((b) => ({ ...b, name: names.get(b.bucket_id)?.name ?? '' }));
+    const buckets = this.ledger.buckets().map((b) => group(b.name, b.id, (r) => r.kind !== 'income' && r.bucket_id === b.id));
+    return [group('Entrate', null, (r) => r.kind === 'income'), ...buckets].filter((g) => g.rows.length);
   });
 
   protected readonly total = computed(() => {
@@ -487,22 +471,12 @@ export class Month {
     return value === null ? '—' : percent.format(value / 100);
   }
 
-  protected clamp(value: number | null): number {
-    return Math.min(100, Math.max(0, value ?? 0));
-  }
-
   protected tone(r: Row): 'better' | 'worse' | 'even' {
     return diffTone(r.kind, r.forecast ?? 0, r.actual);
   }
 
-  protected diffText(r: Row): string {
-    return `${formatCents(Math.abs(r.actual - (r.forecast ?? 0)))} ${TONE_WORD[this.tone(r)]}`;
-  }
-
-  /** Quanto dell'importo previsto è già stato raggiunto. */
-  protected fill(r: Row): number {
-    if (!r.forecast) return r.actual ? 100 : 0;
-    return this.clamp((100 * Math.abs(r.actual)) / Math.abs(r.forecast));
+  protected arrow(r: Row): string {
+    return { better: ' ↑', worse: ' ↓', even: '' }[this.tone(r)];
   }
 
   /** Spiega il risparmio predefinito: importo fisso (con la % che fa sullo stipendio) o percentuale. */
@@ -523,14 +497,16 @@ export class Month {
   }
 
   protected placeholder(r: Row): string {
-    return r.is_default && r.forecast !== null ? signedText(r.forecast, r.kind) : 'nessuna';
+    return r.is_default && r.forecast !== null ? signedText(r.forecast, r.kind) : '—';
   }
 
   /** Campo vuoto = nessuna previsione; per il risparmio torna quella predefinita. */
   protected async setForecast(r: Row, e: Event): Promise<void> {
-    const amount = inputToForecast((e.target as HTMLInputElement).value, r.kind);
+    const input = e.target as HTMLInputElement;
+    const amount = inputToForecast(input.value, r.kind);
     if (amount === undefined) {
       this.snackBar.open('Importo non valido', 'OK', { duration: 4000 });
+      input.value = this.forecastText(r);
       return;
     }
     await this.write(r.category_id!, r.bucket_id, amount);
