@@ -2,12 +2,11 @@ import { Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MatSnackBar } from '@angular/material/snack-bar';
+import { expenseGroupNames, Group, groupsOf, nextOrder, pageOrder, saveOrder } from '../../core/category-order';
 import { Ledger } from '../../core/ledger';
 import { onlineSignal } from '../../core/online';
 import { Category, errorText, supabase } from '../../core/supabase';
 import { PAGE_STYLES } from '../../shared/page-styles';
-
-type Group = { name: string; items: Category[] };
 
 /** Un riquadro della pagina: un gruppo di spese, oppure Entrate o Risparmio. */
 interface Card extends Group {
@@ -17,16 +16,6 @@ interface Card extends Group {
   index: number;
   canUp: boolean;
   canDown: boolean;
-}
-
-/** Le spese per super categoria, nell'ordine delle categorie come nella torta; senza super categoria vale "Altro". */
-export function groupsOf(list: Category[]): Group[] {
-  const groups = new Map<string, Category[]>();
-  for (const c of list) {
-    const name = c.kind === 'expense' ? (c.super_category ?? 'Altro') : '';
-    groups.set(name, [...(groups.get(name) ?? []), c]);
-  }
-  return [...groups].map(([name, items]) => ({ name, items }));
 }
 
 const UP = 'M440-160v-487L216-423l-56-57 320-320 320 320-56 57-224-224v487h-80Z';
@@ -294,11 +283,8 @@ export class Categories {
     ];
   });
 
-  /** I gruppi tra cui spostare una spesa; "Altro" c'è sempre, è dove vanno le spese senza gruppo. */
-  protected readonly groupNames = computed(() => {
-    const names = this.groupCards().map((c) => c.name);
-    return names.includes('Altro') ? names : [...names, 'Altro'];
-  });
+  /** I gruppi tra cui spostare una spesa, compresi quelli appena creati. */
+  protected readonly groupNames = computed(() => [...new Set([...this.groupCards().map((c) => c.name), ...expenseGroupNames(this.ledger.categories())])]);
 
   protected readonly archived = computed(() => this.ledger.categories().filter((c) => c.archived));
 
@@ -321,7 +307,7 @@ export class Categories {
 
   /** La categoria va in fondo al gruppo scelto. */
   protected async setGroup(c: Category, name: string): Promise<void> {
-    const res = await supabase.from('categories').update({ super_category: name, sort_order: this.nextOrder(c.kind) }).eq('id', c.id);
+    const res = await supabase.from('categories').update({ super_category: name, sort_order: nextOrder(this.ledger.categories(), c.kind) }).eq('id', c.id);
     await this.afterChange(res, c.kind, name, 'Gruppo non salvato');
   }
 
@@ -332,7 +318,7 @@ export class Categories {
       name,
       kind: card.kind,
       super_category: card.group ? card.name : null,
-      sort_order: this.nextOrder(card.kind),
+      sort_order: nextOrder(this.ledger.categories(), card.kind),
     });
     if (!res.error) input.value = '';
     await this.afterChange(res, card.kind, card.name, res.error?.code === '23505' ? 'Esiste già una categoria con questo nome' : 'Categoria non aggiunta');
@@ -385,20 +371,10 @@ export class Categories {
 
   /** Scambia con la vicina dello stesso gruppo. */
   protected async move(c: Category, delta: number): Promise<void> {
-    const list = this.flat(c.kind);
+    const list = pageOrder(this.ledger.categories(), c.kind);
     const i = list.indexOf(c);
     [list[i], list[i + delta]] = [list[i + delta], list[i]];
     await this.renumber(list);
-  }
-
-  private nextOrder(kind: string): number {
-    return Math.max(-1, ...this.ledger.categories().filter((c) => c.kind === kind).map((c) => c.sort_order)) + 1;
-  }
-
-  /** Le categorie del tipo nell'ordine della pagina: gruppo per gruppo, poi le archiviate. */
-  private flat(kind: string): Category[] {
-    const list = this.ledger.categories().filter((c) => c.kind === kind);
-    return [...groupsOf(list.filter((c) => !c.archived)).flatMap((g) => g.items), ...list.filter((c) => c.archived)];
   }
 
   /** Dopo un cambio di gruppo, rinumera: così anche le righe di Mese e Anno seguono i gruppi. */
@@ -407,13 +383,11 @@ export class Categories {
     // Il gruppo ora ha una categoria: è salvato, non serve più tenerlo in sospeso.
     this.pending.update((p) => p.filter((n) => n !== group));
     await this.ledger.load();
-    await this.renumber(this.flat(kind));
+    await this.renumber(pageOrder(this.ledger.categories(), kind));
   }
 
   private async renumber(list: Category[]): Promise<void> {
-    const changes = list.map((x, order) => ({ x, order })).filter(({ x, order }) => x.sort_order !== order);
-    const results = await Promise.all(changes.map(({ x, order }) => supabase.from('categories').update({ sort_order: order }).eq('id', x.id)));
-    this.done(results.find((r) => r.error) ?? { error: null, status: 200 }, 'Ordine non salvato');
+    this.done(await saveOrder(list), 'Ordine non salvato');
   }
 
   private done(res: { error: { message: string } | null; status: number }, message: string): void {

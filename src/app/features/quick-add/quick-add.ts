@@ -3,8 +3,10 @@ import { FormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MAT_BOTTOM_SHEET_DATA, MatBottomSheet, MatBottomSheetRef } from '@angular/material/bottom-sheet';
 import { MatSnackBar } from '@angular/material/snack-bar';
+import { expenseGroupNames, nextOrder, pageOrder, saveOrder } from '../../core/category-order';
 import { Ledger, todayIso } from '../../core/ledger';
 import { centsToInput, parseAmount } from '../../core/money';
+import { onlineSignal } from '../../core/online';
 import { PendingOp } from '../../core/queue';
 import { errorText, isGenericOperation, supabase, Transaction } from '../../core/supabase';
 import { Sync } from '../../core/sync';
@@ -79,7 +81,42 @@ function editable(t: Transaction): Record<string, unknown> {
         @if (!showAll() && hiddenCount() > 0) {
           <button type="button" (click)="showAll.set(true)">Altre ({{ hiddenCount() }})</button>
         }
+        <button type="button" [attr.aria-expanded]="creating()" (click)="creating.set(!creating())">+ Nuova</button>
       </div>
+
+      @if (creating()) {
+        <div class="new-category">
+          <label>
+            Nuova categoria {{ income() ? 'di entrata' : 'di spesa' }}
+            <!-- Invio crea la categoria, non salva il movimento. -->
+            <input
+              name="newCategory"
+              autocomplete="off"
+              placeholder="Es. Abbonamento Claude"
+              [(ngModel)]="newCategoryName"
+              (keydown.enter)="$event.preventDefault(); createCategory()"
+            />
+          </label>
+          @if (!income()) {
+            <label>
+              Gruppo
+              <select name="newGroup" [(ngModel)]="newGroup">
+                @for (g of groupNames(); track g) {
+                  <option [value]="g">{{ g }}</option>
+                }
+              </select>
+            </label>
+          }
+          @if (!online()) {
+            <span class="hint">Per creare una categoria serve la connessione.</span>
+          }
+          <div class="actions">
+            <button mat-stroked-button type="button" [disabled]="!online() || !newCategoryName.trim() || creatingBusy()" (click)="createCategory()">
+              Crea e scegli
+            </button>
+          </div>
+        </div>
+      }
 
       @if (needsBucket()) {
         <div class="segmented" role="group" aria-label="Secchio">
@@ -176,6 +213,14 @@ function editable(t: Transaction): Record<string, unknown> {
       flex-wrap: wrap;
       gap: 8px;
     }
+    .new-category {
+      display: grid;
+      gap: 12px;
+      padding: 12px;
+      border-radius: 12px;
+      background: var(--mat-sys-surface-container);
+    }
+    .new-category label,
     details label,
     .merchant {
       display: grid;
@@ -183,7 +228,8 @@ function editable(t: Transaction): Record<string, unknown> {
       margin-top: 12px;
       font: var(--mat-sys-label-large);
     }
-    .merchant {
+    .merchant,
+    .new-category label {
       margin-top: 0;
     }
     .hint {
@@ -192,6 +238,8 @@ function editable(t: Transaction): Record<string, unknown> {
       overflow-wrap: anywhere;
     }
     .merchant input,
+    .new-category input,
+    .new-category select,
     details input,
     details select {
       min-height: 44px;
@@ -276,6 +324,14 @@ export class QuickAdd {
   );
   protected readonly hiddenCount = computed(() => this.candidates().length - this.shownCategories().length);
 
+  /** Nuova categoria creata da qui: solo online, come nella pagina Categorie. */
+  protected readonly online = onlineSignal();
+  protected readonly creating = signal(false);
+  protected readonly creatingBusy = signal(false);
+  protected newCategoryName = '';
+  protected newGroup = 'Altro';
+  protected readonly groupNames = computed(() => expenseGroupNames(this.ledger.categories()));
+
   constructor() {
     const t = this.tx;
     if (t) {
@@ -315,6 +371,37 @@ export class QuickAdd {
     this.categoryId.set(id);
     // Proposta, non regola: il secchio resta visibile e lo cambi con un tocco.
     this.bucketId.set(this.needsBucket() ? ((readMap(BUCKET_KEY)[id] as string | undefined) ?? this.bucketId()) : null);
+  }
+
+  /** Crea la categoria in fondo al suo gruppo e la sceglie per questo movimento. */
+  protected async createCategory(): Promise<void> {
+    const name = this.newCategoryName.trim();
+    if (!name || !this.online() || this.creatingBusy()) return;
+    const kind = this.income() ? 'income' : 'expense';
+    this.creatingBusy.set(true);
+    try {
+      const res = await supabase
+        .from('categories')
+        .insert({ name, kind, super_category: kind === 'expense' ? this.newGroup : null, sort_order: nextOrder(this.ledger.categories(), kind) })
+        .select('id')
+        .single();
+      if (res.error) {
+        this.error.set(res.error.code === '23505' ? 'Esiste già una categoria con questo nome' : 'Categoria non creata: ' + errorText(res));
+        return;
+      }
+      await this.ledger.load();
+      // L'ordine serve solo a Mese e Anno: se non si salva, la categoria c'è comunque.
+      await saveOrder(pageOrder(this.ledger.categories(), kind));
+      void this.ledger.load();
+      this.error.set('');
+      this.newCategoryName = '';
+      this.creating.set(false);
+      // Ancora mai usata: senza "tutte" resterebbe nascosta sotto "Altre".
+      this.showAll.set(true);
+      this.pickCategory(res.data.id);
+    } finally {
+      this.creatingBusy.set(false);
+    }
   }
 
   protected toggleBucket(id: string): void {
