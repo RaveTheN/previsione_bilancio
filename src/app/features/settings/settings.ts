@@ -41,7 +41,8 @@ async function clearDataCaches(): Promise<void> {
     </section>
 
     <nav class="links" aria-label="Altre pagine">
-      <a class="link" routerLink="/categorie">Categorie</a>
+      <!-- Sugli schermi larghi Categorie sta nella barra laterale. -->
+      <a class="link narrow" routerLink="/categorie">Categorie</a>
       <a class="link" routerLink="/rubrica">Rubrica degli esercenti</a>
       <a class="link" routerLink="/ricorrenti">Ricorrenti</a>
       <a class="link" routerLink="/debiti">Debiti e rate</a>
@@ -225,6 +226,11 @@ async function clearDataCaches(): Promise<void> {
       align-items: center;
       min-height: 48px;
       font: var(--mat-sys-title-medium);
+    }
+    @media (min-width: 840px) {
+      .narrow {
+        display: none;
+      }
     }
   `,
 })
