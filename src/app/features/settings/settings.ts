@@ -7,18 +7,12 @@ import { Auth } from '../../core/auth';
 import { Ledger, monthLabel } from '../../core/ledger';
 import { centsToInput, formatCents, parseSignedAmount } from '../../core/money';
 import { onlineSignal } from '../../core/online';
-import { Account, Category, errorText, supabase } from '../../core/supabase';
+import { Account, errorText, supabase } from '../../core/supabase';
 import { Sync } from '../../core/sync';
 import { Devices } from './devices';
 import { Exports } from './exports';
 
 const percent = new Intl.NumberFormat('it-IT', { style: 'percent', maximumFractionDigits: 1 });
-
-const KINDS = [
-  { value: 'income', label: 'Entrate' },
-  { value: 'saving', label: 'Risparmio' },
-  { value: 'expense', label: 'Spese' },
-] as const;
 
 /** Svuota le copie dei dati salvate dal service worker (non l'app stessa). */
 async function clearDataCaches(): Promise<void> {
@@ -47,6 +41,7 @@ async function clearDataCaches(): Promise<void> {
     </section>
 
     <nav class="links" aria-label="Altre pagine">
+      <a class="link" routerLink="/categorie">Categorie</a>
       <a class="link" routerLink="/rubrica">Rubrica degli esercenti</a>
       <a class="link" routerLink="/ricorrenti">Ricorrenti</a>
       <a class="link" routerLink="/debiti">Debiti e rate</a>
@@ -56,7 +51,7 @@ async function clearDataCaches(): Promise<void> {
     </nav>
 
     @if (!online()) {
-      <p class="warn" role="status">Sei offline: impostazioni, categorie, conti e dispositivi si modificano solo con la connessione.</p>
+      <p class="warn" role="status">Sei offline: impostazioni, conti e dispositivi si modificano solo con la connessione.</p>
     }
 
     <fieldset [disabled]="!online()">
@@ -119,54 +114,6 @@ async function clearDataCaches(): Promise<void> {
     </section>
 
     <section>
-      <h2>Categorie</h2>
-      @for (kind of kinds; track kind.value) {
-        <h3>{{ kind.label }}</h3>
-        <ul>
-          @for (c of byKind(kind.value); track c.id; let first = $first, last = $last) {
-            <li>
-              <input [value]="c.name" aria-label="Nome della categoria" (change)="update('categories', c.id, { name: value($event) })" />
-              <button type="button" class="icon" aria-label="Sposta su" [disabled]="first" (click)="move(c, -1)">
-                <svg viewBox="0 -960 960 960" aria-hidden="true"><path d="M440-160v-487L216-423l-56-57 320-320 320 320-56 57-224-224v487h-80Z" /></svg>
-              </button>
-              <button type="button" class="icon" aria-label="Sposta giù" [disabled]="last" (click)="move(c, 1)">
-                <svg viewBox="0 -960 960 960" aria-hidden="true"><path d="M440-800v487L216-537l-56 57 320 320 320-320-56-57-224 224v-487h-80Z" /></svg>
-              </button>
-              <label class="check">
-                <input type="checkbox" [checked]="c.archived" (change)="update('categories', c.id, { archived: checked($event) })" />
-                Archiviata
-              </label>
-              @if (kind.value === 'expense') {
-                <input
-                  class="super"
-                  list="super-categorie"
-                  placeholder="Super categoria: Altro"
-                  [attr.aria-label]="'Super categoria di ' + c.name"
-                  [value]="c.super_category ?? ''"
-                  (change)="update('categories', c.id, { super_category: value($event) || null })"
-                />
-              }
-            </li>
-          }
-        </ul>
-      }
-      <datalist id="super-categorie">
-        @for (name of superCategories(); track name) {
-          <option [value]="name"></option>
-        }
-      </datalist>
-      <form class="row" (ngSubmit)="addCategory()">
-        <input name="newCategory" placeholder="Nuova categoria" aria-label="Nuova categoria" required [(ngModel)]="newCategory" />
-        <select name="newKind" aria-label="Tipo" [(ngModel)]="newKind">
-          @for (kind of kinds; track kind.value) {
-            <option [value]="kind.value">{{ kind.label }}</option>
-          }
-        </select>
-        <button mat-stroked-button type="submit" [disabled]="!newCategory.trim()">Aggiungi</button>
-      </form>
-    </section>
-
-    <section>
       <h2>Conti</h2>
       @for (a of ledger.accounts(); track a.id) {
         <div class="account">
@@ -220,8 +167,7 @@ async function clearDataCaches(): Promise<void> {
       border: 0;
     }
     h1,
-    h2,
-    h3 {
+    h2 {
       margin: 0 0 8px;
     }
     h1 {
@@ -230,17 +176,6 @@ async function clearDataCaches(): Promise<void> {
     h2 {
       font: var(--mat-sys-title-medium);
     }
-    h3 {
-      margin-top: 12px;
-      font: var(--mat-sys-title-small);
-      color: var(--mat-sys-on-surface-variant);
-    }
-    ul {
-      margin: 0;
-      padding: 0;
-      list-style: none;
-    }
-    li,
     .row {
       display: flex;
       flex-wrap: wrap;
@@ -248,17 +183,9 @@ async function clearDataCaches(): Promise<void> {
       gap: 8px;
       min-height: 48px;
     }
-    li input:not([type='checkbox']),
     .row input {
       flex: 1;
       min-width: 0;
-    }
-    /* La super categoria sta sulla sua riga, sotto il nome. */
-    li input.super {
-      flex-basis: 100%;
-    }
-    li:has(.super) {
-      padding-bottom: 8px;
     }
     input:not([type='checkbox']),
     select {
@@ -269,24 +196,6 @@ async function clearDataCaches(): Promise<void> {
       background: var(--mat-sys-surface);
       color: var(--mat-sys-on-surface);
       font: var(--mat-sys-body-large);
-    }
-    .icon {
-      display: grid;
-      place-items: center;
-      width: 44px;
-      height: 44px;
-      border: 0;
-      background: none;
-      color: var(--mat-sys-on-surface);
-      cursor: pointer;
-    }
-    .icon:disabled {
-      opacity: 0.3;
-    }
-    .icon svg {
-      width: 20px;
-      height: 20px;
-      fill: currentColor;
     }
     .check {
       display: flex;
@@ -325,8 +234,6 @@ export class Settings {
   private readonly auth = inject(Auth);
   private readonly router = inject(Router);
   private readonly snackBar = inject(MatSnackBar);
-  protected readonly kinds = KINDS;
-  protected readonly superCategories = computed(() => [...new Set(this.ledger.categories().flatMap((c) => c.super_category ?? []))].sort());
   private readonly balances = signal(new Map<string | null, number | null>());
 
   constructor() {
@@ -337,16 +244,10 @@ export class Settings {
     });
   }
 
-  protected newCategory = '';
-  protected newKind: Category['kind'] = 'expense';
   protected newAccount = '';
 
   /** Le impostazioni si salvano solo online: la coda offline copre i movimenti. */
   protected readonly online = onlineSignal();
-
-  protected byKind(kind: string): Category[] {
-    return this.ledger.categories().filter((c) => c.kind === kind);
-  }
 
   protected value(e: Event): string {
     return (e.target as HTMLInputElement).value.trim();
@@ -360,7 +261,7 @@ export class Settings {
     return cents == null ? '' : centsToInput(cents);
   }
 
-  protected async update(table: 'categories' | 'accounts', id: string, patch: Record<string, unknown>): Promise<void> {
+  protected async update(table: 'accounts', id: string, patch: Record<string, unknown>): Promise<void> {
     this.done(await supabase.from(table).update(patch as never).eq('id', id), 'Modifica non salvata');
   }
 
@@ -464,27 +365,6 @@ export class Settings {
   private invalid(message: string): void {
     this.snackBar.open(message, 'OK', { duration: 4000 });
     void this.ledger.load();
-  }
-
-  /** Riordina scambiando con la vicina e rinumerando l'elenco del tipo. */
-  protected async move(c: Category, delta: number): Promise<void> {
-    const list = this.byKind(c.kind);
-    const i = list.indexOf(c);
-    [list[i], list[i + delta]] = [list[i + delta], list[i]];
-    const changes = list.map((x, order) => ({ x, order })).filter(({ x, order }) => x.sort_order !== order);
-    const results = await Promise.all(
-      changes.map(({ x, order }) => supabase.from('categories').update({ sort_order: order }).eq('id', x.id)),
-    );
-    this.done(results.find((r) => r.error) ?? { error: null, status: 200 }, 'Ordine non salvato');
-  }
-
-  protected async addCategory(): Promise<void> {
-    const order = Math.max(-1, ...this.byKind(this.newKind).map((c) => c.sort_order)) + 1;
-    const res = await supabase
-      .from('categories')
-      .insert({ name: this.newCategory.trim(), kind: this.newKind, sort_order: order });
-    if (!res.error) this.newCategory = '';
-    this.done(res, res.error?.code === '23505' ? 'Esiste già una categoria con questo nome' : 'Categoria non aggiunta');
   }
 
   protected async addAccount(): Promise<void> {
