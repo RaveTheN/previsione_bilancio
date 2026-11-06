@@ -102,6 +102,9 @@ import { errorText, InboxName, Merchant, MerchantAlias, supabase } from '../../c
                   </span>
                 }
               </div>
+              <div class="actions">
+                <button mat-button type="button" [attr.aria-label]="'Elimina ' + m.name" (click)="remove(m)">Elimina</button>
+              </div>
             </li>
           } @empty {
             <p class="note">Ancora nessuno: nascono collegando un nome, o assegnando un movimento.</p>
@@ -304,6 +307,13 @@ export class Rubrica implements OnInit {
     if (await this.update(m, { default_category_id: categoryId || null, default_bucket_id: bucketId })) {
       await this.applyRule(m, categoryId || null, bucketId);
     }
+  }
+
+  /** I movimenti restano con categoria e secchio, senza esercente; i suoi nomi (alias) spariscono con lui. */
+  protected async remove(m: Merchant): Promise<void> {
+    const text = `Eliminare ${m.name}? I suoi movimenti restano con categoria e secchio; i nomi della banca tornano in Da assegnare.`;
+    if (!confirm(text)) return;
+    this.done(await supabase.from('merchants').delete().eq('id', m.id), 'Esercente non eliminato');
   }
 
   /** Chiedi ogni volta: la regola perde il secchio; la categoria, se c'è, resta. */

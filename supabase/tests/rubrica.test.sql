@@ -1,7 +1,7 @@
 -- Fase 3b: Rubrica e assegnazione per esercente. Nomi finti, formati come quelli reali.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(19);
+select plan(21);
 
 insert into auth.users (id, email) values
   ('00000000-0000-0000-0000-00000000000a', 'a@example.com'),
@@ -175,6 +175,19 @@ select results_eq(
      where t.id = '60000000-0000-0000-0000-000000000010' $$,
   $$ values ('30000000-0000-0000-0000-000000000002'::uuid, null::uuid, null::uuid) $$,
   'chiedi ogni volta: l''altro movimento ha la categoria della regola, il secchio resta da scegliere e la regola non cambia'
+);
+
+-- Eliminare un esercente: i movimenti restano assegnati, perdono solo l'esercente; i suoi nomi tornano da assegnare.
+delete from public.merchants where name = 'Bar Esempio Music B';
+select results_eq(
+  $$ select merchant_id, category_id, bucket_id from public.transactions where id = '60000000-0000-0000-0000-000000000001' $$,
+  $$ values (null::uuid, '30000000-0000-0000-0000-000000000002'::uuid, '20000000-0000-0000-0000-000000000002'::uuid) $$,
+  'esercente eliminato: il movimento resta con categoria e secchio, senza esercente'
+);
+select is(
+  (select count(*) from public.merchant_inbox where key = 'BAR ESEMPIO MUSIC B'),
+  1::bigint,
+  'esercente eliminato: il suo nome torna in Da assegnare'
 );
 
 -- Utente B: non vede la Rubrica di A e non può propagare sui suoi movimenti.
