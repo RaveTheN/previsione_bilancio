@@ -1,8 +1,9 @@
+import { CdkDrag, CdkDragDrop, CdkDragHandle, CdkDropList, CdkDropListGroup, moveItemInArray, transferArrayItem } from '@angular/cdk/drag-drop';
 import { Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MatSnackBar } from '@angular/material/snack-bar';
-import { expenseGroupNames, Group, groupsOf, nextOrder, pageOrder, saveOrder } from '../../core/category-order';
+import { expenseGroupNames, Group, groupsOf, nextOrder, orderWithoutGroup, pageOrder, saveOrder } from '../../core/category-order';
 import { Ledger } from '../../core/ledger';
 import { onlineSignal } from '../../core/online';
 import { Category, errorText, supabase } from '../../core/supabase';
@@ -22,11 +23,15 @@ const UP = 'M440-160v-487L216-423l-56-57 320-320 320 320-56 57-224-224v487h-80Z'
 const DOWN = 'M440-800v487L216-537l-56 57 320 320 320-320-56-57-224 224v-487h-80Z';
 const EDIT =
   'M200-200h57l391-391-57-57-391 391v57Zm-80 80v-170l528-527q12-11 26.5-17t30.5-6q16 0 31 6t26 18l55 56q12 11 17.5 26t5.5 30q0 16-5.5 30.5T817-647L290-120H120Zm640-584-56-56 56 56Zm-141 85-28-29 57 57-29-28Z';
+const DELETE =
+  'M280-120q-33 0-56.5-23.5T200-200v-520h-40v-80h200v-40h240v40h200v80h-40v520q0 33-23.5 56.5T680-120H280Zm400-600H280v520h400v-520ZM360-280h80v-360h-80v360Zm160 0h80v-360h-80v360Z';
+/** Maniglia: sei puntini, due colonne per tre righe. */
+const DRAG = [360, 600].flatMap((x) => [-720, -480, -240].map((y) => `M${x - 70} ${y}a70 70 0 1 0 140 0a70 70 0 1 0 -140 0Z`)).join('');
 
 /** Categorie: i gruppi delle spese (gli stessi della torta) e le loro categorie. Solo online. */
 @Component({
   selector: 'app-categories',
-  imports: [FormsModule, MatButtonModule],
+  imports: [CdkDrag, CdkDragHandle, CdkDropList, CdkDropListGroup, FormsModule, MatButtonModule],
   template: `
     <h1>Categorie</h1>
     <p class="note">
@@ -44,7 +49,8 @@ const EDIT =
           @if (s.note) {
             <p class="note">{{ s.note }}</p>
           }
-          <div class="cards">
+          <!-- Le spese si trascinano da un gruppo all'altro; entrate e risparmio solo dentro il loro riquadro. -->
+          <div class="cards" cdkDropListGroup [cdkDropListGroupDisabled]="s.kind !== 'expense'">
             @for (card of s.cards; track card.kind + card.name) {
               <article class="card" [attr.aria-label]="card.name">
                 @if (renaming() === card.name && card.group) {
@@ -66,13 +72,29 @@ const EDIT =
                       <button type="button" class="icon" [attr.aria-label]="'Rinomina il gruppo ' + card.name" (click)="startRename(card)">
                         <svg viewBox="0 -960 960 960" aria-hidden="true"><path [attr.d]="icons.edit" /></svg>
                       </button>
+                      <!-- Altro non si elimina: è dove vanno le spese senza gruppo. -->
+                      @if (card.name !== 'Altro') {
+                        <button type="button" class="icon" [attr.aria-label]="'Elimina il gruppo ' + card.name" (click)="deleteGroup(card)">
+                          <svg viewBox="0 -960 960 960" aria-hidden="true"><path [attr.d]="icons.delete" /></svg>
+                        </button>
+                      }
                     }
                   </div>
                 }
 
-                <ul>
+                <ul
+                  cdkDropList
+                  [class.empty]="!card.items.length"
+                  [cdkDropListData]="card"
+                  [cdkDropListDisabled]="!online()"
+                  (cdkDropListDropped)="drop($event)"
+                >
                   @for (c of card.items; track c.id; let first = $first, last = $last) {
-                    <li>
+                    <li cdkDrag [cdkDragData]="c">
+                      <!-- Solo la maniglia trascina: il resto della riga apre la categoria e lascia scorrere la pagina. -->
+                      <span class="handle" cdkDragHandle [attr.title]="'Trascina ' + c.name">
+                        <svg viewBox="0 -960 960 960" aria-hidden="true"><path [attr.d]="icons.drag" /></svg>
+                      </span>
                       <details>
                         <summary>
                           <span>{{ c.name }}</span>
@@ -98,6 +120,10 @@ const EDIT =
                               <svg viewBox="0 -960 960 960" aria-hidden="true"><path [attr.d]="icons.down" /></svg>
                             </button>
                             <button mat-button type="button" (click)="update(c, { archived: true })">Archivia</button>
+                            <!-- Stipendio e Interessi reggono secchi e stime: si possono solo archiviare. -->
+                            @if (!c.is_salary && !c.is_interest) {
+                              <button mat-button type="button" (click)="remove(c)">Elimina</button>
+                            }
                           </div>
                         </div>
                       </details>
@@ -105,10 +131,7 @@ const EDIT =
                   }
                 </ul>
                 @if (!card.items.length) {
-                  <p class="note">Gruppo vuoto: aggiungi una categoria qui sotto, o spostane qui una esistente scegliendo questo gruppo. Senza categorie non viene salvato.</p>
-                  <div class="actions">
-                    <button mat-button type="button" (click)="dropGroup(card.name)">Elimina il gruppo</button>
-                  </div>
+                  <p class="note">Gruppo vuoto: trascina qui una categoria o aggiungine una nuova. Senza categorie non viene salvato.</p>
                 }
 
                 <form class="add" (ngSubmit)="add(card, newName)">
@@ -121,7 +144,7 @@ const EDIT =
             @if (s.kind === 'expense') {
               <form class="card new" (ngSubmit)="addGroup(groupName)">
                 <h3>Nuovo gruppo</h3>
-                <p class="note">Es. Abbonamenti. Poi aggiungi o sposta le categorie nel suo riquadro.</p>
+                <p class="note">Es. Abbonamenti. Poi trascina le categorie nel suo riquadro, o aggiungine di nuove.</p>
                 <div class="add">
                   <input #groupName autocomplete="off" aria-label="Nome del nuovo gruppo" placeholder="Nome del gruppo" />
                   <button mat-flat-button type="submit">Crea</button>
@@ -140,7 +163,12 @@ const EDIT =
             @for (c of archived(); track c.id) {
               <li class="line">
                 <span>{{ c.name }}</span>
-                <button mat-button type="button" (click)="update(c, { archived: false })">Ripristina</button>
+                <span class="actions">
+                  <button mat-button type="button" (click)="update(c, { archived: false })">Ripristina</button>
+                  @if (!c.is_salary && !c.is_interest) {
+                    <button mat-button type="button" (click)="remove(c)">Elimina</button>
+                  }
+                </span>
               </li>
             }
           </ul>
@@ -188,7 +216,55 @@ const EDIT =
         gap: 8px;
       }
       li {
+        display: flex;
+        align-items: flex-start;
+        gap: 4px;
         padding: 0;
+      }
+      li details {
+        flex: 1;
+        min-width: 0;
+      }
+      .handle {
+        display: grid;
+        flex: none;
+        place-items: center;
+        width: 32px;
+        height: 44px;
+        color: var(--mat-sys-on-surface-variant);
+        cursor: grab;
+      }
+      /* Un gruppo vuoto deve avere spazio dove lasciare la categoria. */
+      ul.empty {
+        min-height: 48px;
+        border: 1px dashed var(--mat-sys-outline-variant);
+        border-radius: 8px;
+      }
+      ul.cdk-drop-list-receiving {
+        outline: 2px dashed var(--mat-sys-primary);
+        outline-offset: 2px;
+        border-radius: 8px;
+      }
+      .cdk-drag-preview {
+        box-sizing: border-box;
+        padding-right: 8px;
+        border-radius: 8px;
+        background: var(--mat-sys-surface-container-highest);
+        box-shadow: var(--mat-sys-level3);
+        list-style: none;
+      }
+      .cdk-drag-placeholder {
+        opacity: 0.3;
+      }
+      .cdk-drag-animating,
+      .cdk-drop-list-dragging .cdk-drag:not(.cdk-drag-placeholder) {
+        transition: transform 200ms cubic-bezier(0, 0, 0.2, 1);
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .cdk-drag-animating,
+        .cdk-drop-list-dragging .cdk-drag {
+          transition: none;
+        }
       }
       summary {
         display: flex;
@@ -244,7 +320,7 @@ export class Categories {
   private readonly ledger = inject(Ledger);
   private readonly snackBar = inject(MatSnackBar);
   protected readonly online = onlineSignal();
-  protected readonly icons = { up: UP, down: DOWN, edit: EDIT };
+  protected readonly icons = { up: UP, down: DOWN, edit: EDIT, delete: DELETE, drag: DRAG };
   /** Gruppi appena creati e ancora vuoti: esistono solo qui finché non ricevono una categoria. */
   private readonly pending = signal<string[]>([]);
   protected readonly renaming = signal<string | null>(null);
@@ -335,8 +411,19 @@ export class Categories {
     input.value = '';
   }
 
-  protected dropGroup(name: string): void {
-    this.pending.update((p) => p.filter((n) => n !== name));
+  /** Le categorie non si eliminano: passano in Altro, anche le archiviate. Un gruppo vuoto sparisce e basta. */
+  protected async deleteGroup(card: Card): Promise<void> {
+    const n = card.items.length;
+    if (!n) {
+      this.pending.update((p) => p.filter((x) => x !== card.name));
+      return;
+    }
+    if (!confirm(`Eliminare il gruppo ${card.name}? ${n === 1 ? 'La sua categoria passa' : `Le sue ${n} categorie passano`} in Altro.`)) return;
+    const all = this.ledger.categories();
+    const ids = all.filter((c) => c.kind === 'expense' && (c.super_category ?? 'Altro') === card.name).map((c) => c.id);
+    const res = await supabase.from('categories').update({ super_category: null }).in('id', ids);
+    if (res.error) return this.done(res, 'Gruppo non eliminato');
+    await this.renumber(orderWithoutGroup(all, card.name));
   }
 
   protected startRename(card: Card): void {
@@ -367,6 +454,53 @@ export class Categories {
     [groups[i], groups[i + delta]] = [groups[i + delta], groups[i]];
     const archived = this.ledger.categories().filter((c) => c.kind === 'expense' && c.archived);
     await this.renumber([...groups.flatMap((g) => g.items), ...archived]);
+  }
+
+  /** Trascinamento: nello stesso riquadro riordina, in un altro gruppo lo cambia. Subito a schermo, poi nel database. */
+  protected async drop(e: CdkDragDrop<Card, Card, Category>): Promise<void> {
+    const from = e.previousContainer.data;
+    const to = e.container.data;
+    const c = e.item.data;
+    const moved = from.name !== to.name;
+    if (!moved && e.previousIndex === e.currentIndex) return;
+    const cards = from.group ? this.groupCards() : [from];
+    const lists = cards.map((x) => [...x.items]);
+    const names = cards.map((x) => x.name);
+    const [src, dst] = [lists[names.indexOf(from.name)], lists[names.indexOf(to.name)]];
+    if (moved) transferArrayItem(src, dst, e.previousIndex, e.currentIndex);
+    else moveItemInArray(src, e.previousIndex, e.currentIndex);
+    const order = [...lists.flat(), ...this.ledger.categories().filter((x) => x.kind === c.kind && x.archived)];
+
+    // Senza questo la riga tornerebbe al suo posto finché il salvataggio non è finito.
+    const position = new Map(order.map((x, i) => [x.id, i]));
+    this.ledger.categories.update((all) =>
+      all
+        .map((x) => {
+          const i = position.get(x.id);
+          return i === undefined ? x : { ...x, sort_order: i, super_category: moved && x.id === c.id ? to.name : x.super_category };
+        })
+        .sort((a, b) => a.sort_order - b.sort_order),
+    );
+
+    if (moved) {
+      const res = await supabase.from('categories').update({ super_category: to.name }).eq('id', c.id);
+      if (res.error) return this.done(res, 'Gruppo non salvato');
+      this.pending.update((p) => p.filter((n) => n !== to.name));
+    }
+    await this.renumber(order);
+  }
+
+  /** Il database rifiuta di eliminare una categoria con movimenti, previsioni o ricorrenti: allora si archivia. */
+  protected async remove(c: Category): Promise<void> {
+    if (!confirm(`Eliminare la categoria ${c.name}?`)) return;
+    const res = await supabase.from('categories').delete().eq('id', c.id);
+    if (res.error?.code === '23503') {
+      const why = `${c.name} ha già movimenti, previsioni o ricorrenti: eliminarla cambierebbe i mesi passati.`;
+      if (c.archived) this.snackBar.open(`${why} Resta archiviata.`, 'OK', { duration: 6000 });
+      else if (confirm(`${why}\n\nArchiviarla? Sparisce dall'inserimento rapido e dalle previsioni, lo storico resta.`)) await this.update(c, { archived: true });
+      return;
+    }
+    this.done(res, 'Categoria non eliminata');
   }
 
   /** Scambia con la vicina dello stesso gruppo. */

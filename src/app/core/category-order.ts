@@ -34,6 +34,16 @@ export function pageOrder(all: Category[], kind: string): Category[] {
   return [...groupsOf(list.filter((c) => !c.archived)).flatMap((g) => g.items), ...list.filter((c) => c.archived)];
 }
 
+/** L'ordine delle spese dopo aver eliminato un gruppo: le sue categorie in fondo ad Altro, che resta dov'era (o arriva in fondo). */
+export function orderWithoutGroup(all: Category[], name: string): Category[] {
+  const list = all.filter((c) => c.kind === 'expense');
+  const groups = groupsOf(list.filter((c) => !c.archived));
+  const moved = groups.find((g) => g.name === name)?.items ?? [];
+  const rest = groups.filter((g) => g.name !== name);
+  if (!rest.some((g) => g.name === 'Altro')) rest.push({ name: 'Altro', items: [] });
+  return [...rest.flatMap((g) => (g.name === 'Altro' ? [...g.items, ...moved] : g.items)), ...list.filter((c) => c.archived)];
+}
+
 /** Salva l'ordine dato come sort_order 0, 1, 2…, così anche Mese e Anno seguono i gruppi. Scrive solo le righe cambiate. */
 export async function saveOrder(list: Category[]): Promise<Result> {
   const changes = list.map((x, order) => ({ x, order })).filter(({ x, order }) => x.sort_order !== order);
