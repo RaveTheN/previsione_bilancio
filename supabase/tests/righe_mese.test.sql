@@ -1,7 +1,7 @@
 -- Spostare una riga del mese in un altro secchio. Dati finti.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(4);
+select plan(6);
 
 insert into auth.users (id, email) values
   ('00000000-0000-0000-0000-00000000000a', 'a@example.com'),
@@ -52,6 +52,20 @@ select throws_ok(
        '20000000-0000-0000-0000-000000000002', '20000000-0000-0000-0000-000000000002') $$,
   '22023', null,
   'stesso secchio: rifiutato'
+);
+
+-- Eliminare la riga (ora in Fun): via la previsione, il movimento del mese torna da assegnare.
+select is(
+  public.delete_month_row('2026-11-01', '30000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000002'),
+  1,
+  'eliminare la riga rimette da assegnare il suo movimento del mese'
+);
+select results_eq(
+  $$ select (select count(*) from public.budget_lines),
+            (select category_id from public.transactions where id = '60000000-0000-0000-0000-000000000001'),
+            (select bucket_id from public.transactions where id = '60000000-0000-0000-0000-000000000001') $$,
+  $$ values (0::bigint, '30000000-0000-0000-0000-000000000001'::uuid, null::uuid) $$,
+  'la spesa tiene la categoria e perde il secchio; la previsione non c''è più'
 );
 
 select * from finish();

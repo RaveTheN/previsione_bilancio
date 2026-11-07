@@ -497,6 +497,9 @@ isOneToOne: false
               "first_due_date": string,"id": string,"installment_cents": number,"last_due_date": string,"n_installments": number,"name": string,"next_due_date": string,"paid": number,"remaining_cents": number
             }[]
                            },
+"delete_month_row":
+{ Args: { "p_bucket_id": string,"p_category_id": string,"p_month": string }; Returns: number
+                           },
 "due_in_month":
 { Args: { "p_day": number,"p_month": string }; Returns: string
                            },

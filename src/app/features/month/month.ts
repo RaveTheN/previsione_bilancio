@@ -229,9 +229,7 @@ const percent = new Intl.NumberFormat('it-IT', { style: 'percent', maximumFracti
                   }
                 }
               }
-              @if (r.forecast !== null) {
-                <button mat-menu-item type="button" (click)="deleteRow(r)">Elimina la riga</button>
-              }
+              <button mat-menu-item type="button" (click)="deleteRow(r)">Elimina la riga</button>
             </ng-template>
           </mat-menu>
         } @else if (!unassigned().n) {
@@ -648,11 +646,17 @@ export class Month {
     }
   }
 
-  /** Toglie la previsione della riga; i movimenti restano, e con loro la riga col solo effettivo. */
+  /** Toglie la previsione e rimette da assegnare i movimenti del mese: così la riga sparisce davvero. */
   protected async deleteRow(r: Row): Promise<void> {
-    const stays = r.n ? ` I suoi ${r.n} movimenti restano: la riga resta con il solo effettivo.` : '';
-    if (!confirm(`Togliere ${r.cat!.name} dalla previsione di ${monthLabel(this.ledger.month())}?${stays}`)) return;
-    await this.write(r.category_id!, r.bucket_id, null);
+    const what = r.kind === 'income' ? 'senza categoria' : 'senza secchio (la categoria resta)';
+    const back = r.n ? ` I suoi ${r.n === 1 ? 'movimento torna' : `${r.n} movimenti tornano`} da assegnare, ${what}.` : '';
+    if (!confirm(`Eliminare la riga ${r.cat!.name} da ${monthLabel(this.ledger.month())}?${back}`)) return;
+    const res = await supabase.rpc('delete_month_row', {
+      p_month: this.ledger.month(),
+      p_category_id: r.category_id!,
+      p_bucket_id: r.bucket_id!,
+    });
+    this.done(res, 'Riga non eliminata');
   }
 
   /** Trascinamento in un altro secchio: stessa operazione del menu. */
