@@ -67,14 +67,14 @@ export type Database = {
                   ]
                 },"budget_lines": {
                   Row: {
-                    "amount_cents": number,"bucket_id": string | null,"category_id": string,"created_at": string,"id": string,"month": string,"user_id": string
+                    "amount_cents": number,"bucket_id": string | null,"created_at": string,"id": string,"month": string,"name": string,"sort_order": number,"user_id": string
                   }
                   ComputedFields: never
                   Insert: {
-                    "amount_cents": number,"bucket_id"?: string | null,"category_id": string,"created_at"?: string,"id"?: string,"month": string,"user_id"?: string
+                    "amount_cents": number,"bucket_id"?: string | null,"created_at"?: string,"id"?: string,"month": string,"name": string,"sort_order"?: number,"user_id"?: string
                   }
                   Update: {
-                    "amount_cents"?: number,"bucket_id"?: string | null,"category_id"?: string,"created_at"?: string,"id"?: string,"month"?: string,"user_id"?: string
+                    "amount_cents"?: number,"bucket_id"?: string | null,"created_at"?: string,"id"?: string,"month"?: string,"name"?: string,"sort_order"?: number,"user_id"?: string
                   }
                   Relationships: [
                     {
@@ -82,12 +82,6 @@ export type Database = {
       columns: ["bucket_id","user_id"]
 isOneToOne: false
       referencedRelation: "buckets"
-      referencedColumns: ["id","user_id"]
-    },{
-      foreignKeyName: "budget_lines_category_id_user_id_fkey"
-      columns: ["category_id","user_id"]
-isOneToOne: false
-      referencedRelation: "categories"
       referencedColumns: ["id","user_id"]
     }
                   ]
@@ -110,20 +104,6 @@ isOneToOne: false
       referencedRelation: "accounts"
       referencedColumns: ["id","user_id"]
     }
-                  ]
-                },"categories": {
-                  Row: {
-                    "archived": boolean,"created_at": string,"id": string,"is_interest": boolean,"is_salary": boolean,"kind": string,"name": string,"sort_order": number,"super_category": string | null,"user_id": string
-                  }
-                  ComputedFields: never
-                  Insert: {
-                    "archived"?: boolean,"created_at"?: string,"id"?: string,"is_interest"?: boolean,"is_salary"?: boolean,"kind": string,"name": string,"sort_order"?: number,"super_category"?: string | null,"user_id"?: string
-                  }
-                  Update: {
-                    "archived"?: boolean,"created_at"?: string,"id"?: string,"is_interest"?: boolean,"is_salary"?: boolean,"kind"?: string,"name"?: string,"sort_order"?: number,"super_category"?: string | null,"user_id"?: string
-                  }
-                  Relationships: [
-                    
                   ]
                 },"debts": {
                   Row: {
@@ -193,29 +173,17 @@ isOneToOne: false
                   ]
                 },"merchants": {
                   Row: {
-                    "ask_each_time": boolean,"created_at": string,"default_bucket_id": string | null,"default_category_id": string | null,"id": string,"name": string,"user_id": string
+                    "ask_each_time": boolean,"created_at": string,"default_line_name": string | null,"id": string,"name": string,"user_id": string
                   }
                   ComputedFields: never
                   Insert: {
-                    "ask_each_time"?: boolean,"created_at"?: string,"default_bucket_id"?: string | null,"default_category_id"?: string | null,"id"?: string,"name": string,"user_id"?: string
+                    "ask_each_time"?: boolean,"created_at"?: string,"default_line_name"?: string | null,"id"?: string,"name": string,"user_id"?: string
                   }
                   Update: {
-                    "ask_each_time"?: boolean,"created_at"?: string,"default_bucket_id"?: string | null,"default_category_id"?: string | null,"id"?: string,"name"?: string,"user_id"?: string
+                    "ask_each_time"?: boolean,"created_at"?: string,"default_line_name"?: string | null,"id"?: string,"name"?: string,"user_id"?: string
                   }
                   Relationships: [
-                    {
-      foreignKeyName: "merchants_default_bucket_id_user_id_fkey"
-      columns: ["default_bucket_id","user_id"]
-isOneToOne: false
-      referencedRelation: "buckets"
-      referencedColumns: ["id","user_id"]
-    },{
-      foreignKeyName: "merchants_default_category_id_user_id_fkey"
-      columns: ["default_category_id","user_id"]
-isOneToOne: false
-      referencedRelation: "categories"
-      referencedColumns: ["id","user_id"]
-    }
+                    
                   ]
                 },"parse_rules": {
                   Row: {
@@ -245,48 +213,16 @@ isOneToOne: false
                   Relationships: [
                     
                   ]
-                },"recurring_rules": {
-                  Row: {
-                    "account_id": string,"amount_cents": number,"bucket_id": string | null,"cancel_by": string | null,"category_id": string,"created_at": string,"end_date": string | null,"frequency": string,"generated_until": string,"id": string,"name": string,"start_date": string,"user_id": string
-                  }
-                  ComputedFields: never
-                  Insert: {
-                    "account_id": string,"amount_cents": number,"bucket_id"?: string | null,"cancel_by"?: string | null,"category_id": string,"created_at"?: string,"end_date"?: string | null,"frequency"?: string,"generated_until"?: string,"id"?: string,"name": string,"start_date": string,"user_id"?: string
-                  }
-                  Update: {
-                    "account_id"?: string,"amount_cents"?: number,"bucket_id"?: string | null,"cancel_by"?: string | null,"category_id"?: string,"created_at"?: string,"end_date"?: string | null,"frequency"?: string,"generated_until"?: string,"id"?: string,"name"?: string,"start_date"?: string,"user_id"?: string
-                  }
-                  Relationships: [
-                    {
-      foreignKeyName: "recurring_rules_account_id_user_id_fkey"
-      columns: ["account_id","user_id"]
-isOneToOne: false
-      referencedRelation: "accounts"
-      referencedColumns: ["id","user_id"]
-    },{
-      foreignKeyName: "recurring_rules_bucket_id_user_id_fkey"
-      columns: ["bucket_id","user_id"]
-isOneToOne: false
-      referencedRelation: "buckets"
-      referencedColumns: ["id","user_id"]
-    },{
-      foreignKeyName: "recurring_rules_category_id_user_id_fkey"
-      columns: ["category_id","user_id"]
-isOneToOne: false
-      referencedRelation: "categories"
-      referencedColumns: ["id","user_id"]
-    }
-                  ]
                 },"settings": {
                   Row: {
-                    "created_at": string,"go_live_month": string,"interest_rate_pct": number | null,"opening_residual_cents": number,"savings_amount_cents": number | null,"savings_bucket_id": string | null,"savings_pct": number,"user_id": string,"wishlist_bucket_id": string | null
+                    "created_at": string,"go_live_month": string,"opening_residual_cents": number,"savings_bucket_id": string | null,"user_id": string,"wishlist_bucket_id": string | null
                   }
                   ComputedFields: never
                   Insert: {
-                    "created_at"?: string,"go_live_month"?: string,"interest_rate_pct"?: number | null,"opening_residual_cents"?: number,"savings_amount_cents"?: number | null,"savings_bucket_id"?: string | null,"savings_pct"?: number,"user_id"?: string,"wishlist_bucket_id"?: string | null
+                    "created_at"?: string,"go_live_month"?: string,"opening_residual_cents"?: number,"savings_bucket_id"?: string | null,"user_id"?: string,"wishlist_bucket_id"?: string | null
                   }
                   Update: {
-                    "created_at"?: string,"go_live_month"?: string,"interest_rate_pct"?: number | null,"opening_residual_cents"?: number,"savings_amount_cents"?: number | null,"savings_bucket_id"?: string | null,"savings_pct"?: number,"user_id"?: string,"wishlist_bucket_id"?: string | null
+                    "created_at"?: string,"go_live_month"?: string,"opening_residual_cents"?: number,"savings_bucket_id"?: string | null,"user_id"?: string,"wishlist_bucket_id"?: string | null
                   }
                   Relationships: [
                     {
@@ -365,14 +301,14 @@ isOneToOne: false
                   ]
                 },"transactions": {
                   Row: {
-                    "account_id": string,"amount_cents": number,"booking_date": string,"bucket_id": string | null,"category_id": string | null,"created_at": string,"id": string,"merchant_id": string | null,"merchant_raw": string | null,"month": string | null,"note": string | null,"occurred_at": string,"recurring_rule_id": string | null,"review_reason": string | null,"source": string,"status": string,"transfer_group_id": string | null,"user_id": string,"value_date": string | null
+                    "account_id": string,"amount_cents": number,"booking_date": string,"created_at": string,"id": string,"line_id": string | null,"merchant_id": string | null,"merchant_raw": string | null,"month": string | null,"note": string | null,"occurred_at": string,"review_reason": string | null,"source": string,"status": string,"transfer_group_id": string | null,"user_id": string,"value_date": string | null
                   }
                   ComputedFields: never
                   Insert: {
-                    "account_id": string,"amount_cents": number,"booking_date"?: string,"bucket_id"?: string | null,"category_id"?: string | null,"created_at"?: string,"id"?: string,"merchant_id"?: string | null,"merchant_raw"?: string | null,"month"?: never,"note"?: string | null,"occurred_at"?: string,"recurring_rule_id"?: string | null,"review_reason"?: string | null,"source"?: string,"status"?: string,"transfer_group_id"?: string | null,"user_id"?: string,"value_date"?: string | null
+                    "account_id": string,"amount_cents": number,"booking_date"?: string,"created_at"?: string,"id"?: string,"line_id"?: string | null,"merchant_id"?: string | null,"merchant_raw"?: string | null,"month"?: never,"note"?: string | null,"occurred_at"?: string,"review_reason"?: string | null,"source"?: string,"status"?: string,"transfer_group_id"?: string | null,"user_id"?: string,"value_date"?: string | null
                   }
                   Update: {
-                    "account_id"?: string,"amount_cents"?: number,"booking_date"?: string,"bucket_id"?: string | null,"category_id"?: string | null,"created_at"?: string,"id"?: string,"merchant_id"?: string | null,"merchant_raw"?: string | null,"month"?: never,"note"?: string | null,"occurred_at"?: string,"recurring_rule_id"?: string | null,"review_reason"?: string | null,"source"?: string,"status"?: string,"transfer_group_id"?: string | null,"user_id"?: string,"value_date"?: string | null
+                    "account_id"?: string,"amount_cents"?: number,"booking_date"?: string,"created_at"?: string,"id"?: string,"line_id"?: string | null,"merchant_id"?: string | null,"merchant_raw"?: string | null,"month"?: never,"note"?: string | null,"occurred_at"?: string,"review_reason"?: string | null,"source"?: string,"status"?: string,"transfer_group_id"?: string | null,"user_id"?: string,"value_date"?: string | null
                   }
                   Relationships: [
                     {
@@ -382,28 +318,16 @@ isOneToOne: false
       referencedRelation: "accounts"
       referencedColumns: ["id","user_id"]
     },{
-      foreignKeyName: "transactions_bucket_id_user_id_fkey"
-      columns: ["bucket_id","user_id"]
+      foreignKeyName: "transactions_line_id_user_id_fkey"
+      columns: ["line_id","user_id"]
 isOneToOne: false
-      referencedRelation: "buckets"
-      referencedColumns: ["id","user_id"]
-    },{
-      foreignKeyName: "transactions_category_id_user_id_fkey"
-      columns: ["category_id","user_id"]
-isOneToOne: false
-      referencedRelation: "categories"
+      referencedRelation: "budget_lines"
       referencedColumns: ["id","user_id"]
     },{
       foreignKeyName: "transactions_merchant_id_user_id_fkey"
       columns: ["merchant_id","user_id"]
 isOneToOne: false
       referencedRelation: "merchants"
-      referencedColumns: ["id","user_id"]
-    },{
-      foreignKeyName: "transactions_recurring_rule_id_user_id_fkey"
-      columns: ["recurring_rule_id","user_id"]
-isOneToOne: false
-      referencedRelation: "recurring_rules"
       referencedColumns: ["id","user_id"]
     }
                   ]
@@ -454,21 +378,15 @@ isOneToOne: false
                   ]
                 },"month_actuals": {
                   Row: {
-                    "actual_cents": number | null,"bucket_id": string | null,"category_id": string | null,"inflow": boolean | null,"month": string | null,"n": number | null,"user_id": string | null
+                    "actual_cents": number | null,"line_id": string | null,"month": string | null,"n": number | null,"user_id": string | null
                   }
                   ComputedFields: never
                   Relationships: [
                     {
-      foreignKeyName: "transactions_bucket_id_user_id_fkey"
-      columns: ["bucket_id","user_id"]
+      foreignKeyName: "transactions_line_id_user_id_fkey"
+      columns: ["line_id","user_id"]
 isOneToOne: false
-      referencedRelation: "buckets"
-      referencedColumns: ["id","user_id"]
-    },{
-      foreignKeyName: "transactions_category_id_user_id_fkey"
-      columns: ["category_id","user_id"]
-isOneToOne: false
-      referencedRelation: "categories"
+      referencedRelation: "budget_lines"
       referencedColumns: ["id","user_id"]
     }
                   ]
@@ -483,7 +401,10 @@ isOneToOne: false
                 }
           }
           Functions: {
-            "assign_like":
+            "apply_merchant_rule":
+{ Args: { "p_merchant_id": string }; Returns: number
+                           },
+"assign_like":
 { Args: { "p_transaction_id": string }; Returns: Json
                            },
 "chart_data":
@@ -497,11 +418,14 @@ isOneToOne: false
               "first_due_date": string,"id": string,"installment_cents": number,"last_due_date": string,"n_installments": number,"name": string,"next_due_date": string,"paid": number,"remaining_cents": number
             }[]
                            },
-"delete_month_row":
-{ Args: { "p_bucket_id": string,"p_category_id": string,"p_month": string }; Returns: number
-                           },
 "due_in_month":
 { Args: { "p_day": number,"p_month": string }; Returns: string
+                           },
+"ensure_month_lines":
+{ Args: { "p_month": string,"p_user"?: string }; Returns: number
+                           },
+"find_line":
+{ Args: { "p_date": string,"p_name": string,"p_user": string }; Returns: string
                            },
 "ingest":
 { Args: { "app": string,"body"?: string,"event_id": string,"occurred_at": string,"subtitle"?: string,"title"?: string,"token": string }; Returns: Json
@@ -515,14 +439,14 @@ isOneToOne: false
 "month_overview":
 { Args: { "p_month": string,"p_today"?: string }; Returns: Json
                            },
-"move_month_row":
-{ Args: { "p_category_id": string,"p_from": string,"p_month": string,"p_to": string }; Returns: undefined
-                           },
 "reprocess_event":
 { Args: { "p_event_id": string }; Returns: Json
                            },
 "reprocess_events":
 { Args: Record<PropertyKey, never>; Returns: Json
+                           },
+"savings_line":
+{ Args: { "p_date": string,"p_user": string }; Returns: string
                            },
 "test_parse":
 { Args: { "p_amount": string,"p_app": string,"p_card": string,"p_match": string,"p_merchant": string }; Returns: {

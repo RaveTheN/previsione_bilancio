@@ -17,8 +17,6 @@ export const routes: Routes = [
       { path: 'grafici', loadComponent: () => import('./features/charts/charts').then((m) => m.Charts) },
       { path: 'da-rivedere', loadComponent: () => import('./features/review/review').then((m) => m.Review) },
       { path: 'regole', loadComponent: () => import('./features/rules/rules').then((m) => m.Rules) },
-      { path: 'ricorrenti', loadComponent: () => import('./features/recurring/recurring').then((m) => m.Recurring) },
-      { path: 'categorie', loadComponent: () => import('./features/categories/categories').then((m) => m.Categories) },
       { path: 'rubrica', loadComponent: () => import('./features/rubrica/rubrica').then((m) => m.Rubrica) },
       { path: 'debiti', loadComponent: () => import('./features/debts/debts').then((m) => m.Debts) },
       { path: 'desideri', loadComponent: () => import('./features/wishlist/wishlist').then((m) => m.Wishlist) },

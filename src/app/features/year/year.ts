@@ -3,11 +3,11 @@ import { NgTemplateOutlet } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MatSnackBar } from '@angular/material/snack-bar';
-import { copyForecast, forecastToInput, inputToForecast, signedText, writeForecast } from '../../core/budget';
+import { copyForecast, inputToForecast, signedText, writeByName } from '../../core/budget';
 import { currentMonth, Ledger, monthLabel, shiftMonth } from '../../core/ledger';
 import { deviation, formatCents } from '../../core/money';
 import { onlineSignal } from '../../core/online';
-import { errorText, MonthOverview, supabase, Transaction } from '../../core/supabase';
+import { errorText, MonthLine, MonthOverview, supabase, Transaction } from '../../core/supabase';
 import { Sync } from '../../core/sync';
 import { QuickAddLauncher } from '../quick-add/quick-add';
 import { movementTitle } from '../transactions/transactions';
@@ -149,7 +149,6 @@ function readDensity(): Density {
                   aria-label="Previsto"
                   [disabled]="!online()"
                   [value]="input(s.cell, s.row.kind)"
-                  [placeholder]="placeholder(s.cell, s.row.kind)"
                   (keydown.enter)="blur($event)"
                   (change)="setForecast(s.row, s.month, $event)"
                 />
@@ -164,7 +163,7 @@ function readDensity(): Density {
               <dd [class]="tone(s.row.kind, s.cell)">{{ delta(s.row.kind, s.cell) }}</dd>
             }
           </dl>
-          @if (s.row.editable && s.cell.forecast !== null && !s.cell.isDefault) {
+          @if (s.row.editable && s.cell.forecast !== null) {
             <form class="copy" (ngSubmit)="copyLine(s.row, s.month)">
               <label>
                 Copia questa previsione fino a
@@ -208,7 +207,6 @@ function readDensity(): Density {
                 [attr.aria-label]="'Previsto ' + row.label + ', ' + label(months()[i])"
                 [disabled]="!online()"
                 [value]="input(c, kind)"
-                [placeholder]="placeholder(c, kind)"
                 (keydown.enter)="blur($event)"
                 (change)="setForecast(row, i, $event)"
               />
@@ -566,7 +564,7 @@ export class Year {
 
   protected readonly pivot = computed(() => {
     const loaded = this.loaded();
-    return loaded?.year === this.year() ? pivotYear(loaded.months, this.ledger.categoryById(), this.ledger.buckets()) : null;
+    return loaded?.year === this.year() ? pivotYear(loaded.months, this.ledger.buckets()) : null;
   });
 
   protected readonly selectedRow = computed(() => {
@@ -619,7 +617,8 @@ export class Year {
   }
 
   protected title(t: Transaction): string {
-    return movementTitle(t, this.ledger);
+    const line = this.loaded()?.months.flatMap((m) => m.lines).find((l) => l.id === t.line_id);
+    return movementTitle(t, this.ledger, line?.name);
   }
 
   protected after(month: number): string[] {
@@ -641,11 +640,7 @@ export class Year {
   }
 
   protected input(c: Cell, kind: string): string {
-    return forecastToInput(c.forecast, kind, c.isDefault);
-  }
-
-  protected placeholder(c: Cell, kind: string): string {
-    return c.isDefault && c.forecast !== null ? signedText(c.forecast, kind) : '';
+    return c.forecast === null ? '' : signedText(c.forecast, kind);
   }
 
   /** Colore dello scostamento; senza previsione né movimenti, niente colore. */
@@ -657,7 +652,7 @@ export class Year {
   /** Differenza con il segno di "meglio" (+) o "peggio" (−) e la freccia. */
   protected delta(kind: string, c: Cell): string {
     if (kind === 'balance' || c.actual === null || this.blank(c)) return '';
-    const better = (c.actual - (c.forecast ?? 0)) * (kind === 'saving' ? -1 : 1);
+    const better = c.actual - (c.forecast ?? 0);
     if (!better) return '=';
     return `${better > 0 ? '+' : '−'}${number.format(Math.abs(better) / 100)} ${better > 0 ? '↑' : '↓'}`;
   }
@@ -681,14 +676,15 @@ export class Year {
       this.snackBar.open('Importo non valido', 'OK', { duration: 4000 });
       return;
     }
-    this.done(await writeForecast(this.months()[month], row.categoryId!, row.bucketId, amount), 'Previsione non salvata');
+    this.done(await writeByName(this.months()[month], row.label, row.bucketId, amount), 'Previsione non salvata');
   }
 
   protected async copyLine(row: GridRow, month: number): Promise<void> {
     const forecast = row.cells[month].forecast;
     if (!this.copyUntil || forecast === null) return;
     const until = this.copyUntil;
-    const res = await copyForecast(this.months()[month], until, [{ category_id: row.categoryId!, bucket_id: row.bucketId, forecast }]);
+    const sortOrder = this.lineAt(row, month)?.sort_order ?? 0;
+    const res = await copyForecast(this.months()[month], until, [{ name: row.label, bucket_id: row.bucketId, forecast, sort_order: sortOrder }]);
     if (res !== 'cancelled' && this.done(res, 'Copia non riuscita')) {
       this.copyUntil = '';
       this.snackBar.open(`Previsione copiata fino a ${monthLabel(until)}`, 'OK', { duration: 4000 });
@@ -710,7 +706,12 @@ export class Year {
     if (res.data) this.loaded.set({ year, months: res.data as unknown as MonthOverview[] });
   }
 
-  /** Movimenti della cella: stessa categoria e secchio, oppure quelli da assegnare. */
+  /** La riga del mese dietro una riga della griglia (stesso nome e secchio). */
+  private lineAt(row: GridRow, month: number): MonthLine | undefined {
+    return this.loaded()?.months[month]?.lines.find((l) => l.bucket_id === row.bucketId && l.name.toLowerCase() === row.label.toLowerCase());
+  }
+
+  /** Movimenti della cella: quelli della sua riga, oppure quelli da assegnare. */
   private async loadMovements(row: GridRow | null, month: number): Promise<void> {
     if (!row) {
       this.movements.set([]);
@@ -722,14 +723,10 @@ export class Year {
       .eq('month', this.months()[month])
       .neq('status', 'declined')
       .order('booking_date');
-    const cats = this.ledger.categoryById();
+    const lineId = row.editable ? this.lineAt(row, month)?.id : undefined;
     this.movements.set(
-      (res.data ?? []).filter((t) => {
-        if (row.categoryId) return t.category_id === row.categoryId && t.bucket_id === row.bucketId;
-        const cat = cats.get(t.category_id ?? '');
-        // Come la riga "Da assegnare" della vista mese: i trasferimenti ordinari non contano.
-        return !(t.transfer_group_id && !t.category_id) && (!cat || (cat.kind !== 'income' && !t.bucket_id));
-      }),
+      // Come la riga "Da assegnare" della vista mese: i trasferimenti senza riga non contano.
+      (res.data ?? []).filter((t) => (row.editable ? !!lineId && t.line_id === lineId : !t.line_id && !t.transfer_group_id)),
     );
   }
 }

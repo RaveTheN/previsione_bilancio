@@ -20,13 +20,13 @@ async function readAll<T>(page: (from: number, to: number) => PromiseLike<{ data
   }
 }
 
-/** Entrate dell'anno per categoria (es. Vinted) ed export in CSV. */
+/** Entrate dell'anno per riga (es. Vinted) ed export in CSV. */
 @Component({
   selector: 'app-exports',
   imports: [MatButtonModule],
   template: `
     <section>
-      <h2>Entrate {{ year }} per categoria</h2>
+      <h2>Entrate {{ year }} per riga</h2>
       <ul>
         @for (r of income(); track r.key) {
           <li>
@@ -101,7 +101,7 @@ export class Exports implements OnInit {
   protected readonly income = computed(() => {
     const months = this.months();
     if (!months.length) return [];
-    const pivot = pivotYear(months, this.ledger.categoryById(), this.ledger.buckets());
+    const pivot = pivotYear(months, this.ledger.buckets());
     return (pivot.groups.find((g) => g.key === 'entrate')?.rows ?? []).filter((r) => r.total.actual);
   });
 
@@ -113,19 +113,20 @@ export class Exports implements OnInit {
 
   protected exportMovements(): Promise<void> {
     return this.run('movimenti', async () => {
-      const rows = await readAll<Transaction>((from, to) =>
-        supabase.from('transactions').select('*, transaction_tags(tag_id)').order('booking_date').order('id').range(from, to),
+      // La riga viene con il movimento: quella di un altro mese non è tra le righe caricate.
+      const rows = await readAll<Transaction & { budget_lines: { name: string; bucket_id: string | null } | null }>((from, to) =>
+        supabase.from('transactions').select('*, transaction_tags(tag_id), budget_lines(name, bucket_id)').order('booking_date').order('id').range(from, to),
       );
-      const { accountById, categoryById, bucketById, merchantById, tagById } = this.ledger;
+      const { accountById, bucketById, merchantById, tagById } = this.ledger;
       return [
-        ['Data', 'Data valuta', 'Conto', 'Importo', 'Categoria', 'Secchio', 'Esercente', 'Nome originale', 'Nota', 'Tag', 'Trasferimento', 'Fonte', 'Stato'],
+        ['Data', 'Data valuta', 'Conto', 'Importo', 'Riga', 'Secchio', 'Esercente', 'Nome originale', 'Nota', 'Tag', 'Trasferimento', 'Fonte', 'Stato'],
         ...rows.map((t) => [
           italianDate(t.booking_date),
           t.value_date ? italianDate(t.value_date) : '',
           csvText(accountById().get(t.account_id)?.name),
           centsToInput(t.amount_cents),
-          csvText(categoryById().get(t.category_id ?? '')?.name),
-          csvText(bucketById().get(t.bucket_id ?? '')?.name),
+          csvText(t.budget_lines?.name),
+          csvText(t.budget_lines ? (bucketById().get(t.budget_lines.bucket_id ?? '')?.name ?? 'Entrate') : ''),
           csvText(merchantById().get(t.merchant_id ?? '')?.name),
           csvText(t.merchant_raw),
           csvText(t.note),
@@ -141,13 +142,13 @@ export class Exports implements OnInit {
   protected exportForecast(): Promise<void> {
     return this.run('previsioni', async () => {
       const rows = await readAll<BudgetLine>((from, to) => supabase.from('budget_lines').select().order('month').order('id').range(from, to));
-      const { categoryById, bucketById } = this.ledger;
+      const { bucketById } = this.ledger;
       return [
-        ['Mese', 'Categoria', 'Secchio', 'Importo'],
+        ['Mese', 'Riga', 'Secchio', 'Importo'],
         ...rows.map((b) => [
           italianDate(b.month).slice(3),
-          csvText(categoryById().get(b.category_id)?.name),
-          csvText(bucketById().get(b.bucket_id ?? '')?.name),
+          csvText(b.name),
+          csvText(bucketById().get(b.bucket_id ?? '')?.name ?? 'Entrate'),
           centsToInput(b.amount_cents),
         ]),
       ];

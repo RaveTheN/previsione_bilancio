@@ -51,7 +51,7 @@ npx ng build                # build di produzione
 2. **App:** copia URL del progetto e publishable key (Project Settings → API Keys) in `src/environments/environment.ts`. Sono pubblici per natura: i dati li protegge la RLS.
 3. **GitHub:** Settings → Pages → Source: "GitHub Actions"; Settings → Advanced Security: attiva Secret scanning e Push protection.
 4. **Backup:** segui [docs/ripristino-backup.md](docs/ripristino-backup.md).
-5. **Dati iniziali:** applica le migrazioni (`npx supabase db push`), poi nello SQL Editor di produzione esegui `docs/setup-iniziale.sql` (secchi, categorie, conti BBVA e Salvadanaio). Infine, nell'app, Altro → Bilancio: mese di avvio, residuo all'avvio, percentuale e secchio del risparmio.
+5. **Dati iniziali:** applica le migrazioni (`npx supabase db push`), poi nello SQL Editor di produzione esegui `docs/setup-iniziale.sql` (secchi, conti BBVA e Salvadanaio). Infine, nell'app, Altro → Bilancio: mese di avvio, residuo all'avvio e secchio del risparmio.
 
 ## Import dell'estratto conto
 
@@ -61,9 +61,9 @@ python tools/import/import.py bbva estratto.xlsx --saldo 1234.56 --al 2026-10-12
 
 - Genera `tools/import/out/estratto-bbva.sql` (escluso da Git) e stampa un rapporto: righe, netto per mese, accantonamenti, movimenti da classificare e la ricostruzione del saldo di apertura.
 - Il file SQL va eseguito nello SQL Editor di Supabase dopo `docs/setup-iniziale.sql`.
-- Si può rieseguire: gli id sono stabili e le categorie assegnate a mano non vengono toccate.
+- Si può rieseguire: gli id sono stabili e le assegnazioni fatte a mano non vengono toccate.
 - Non crea doppioni con ciò che è già registrato: una riga con lo stesso conto e importo, entro 3 giorni, si abbina 1:1 al movimento arrivato da notifica, inserito a mano o generato da una ricorrente, e lo completa. Il risultato dell'esecuzione dice quante righe sono nuove, unite o già importate.
-- Le righe "TRASFERIMENTO PROGRAMMA IL TUO CONTO" diventano accantonamenti verso il Salvadanaio; tutto il resto entra senza categoria, nella riga "Da assegnare".
+- Le righe "TRASFERIMENTO PROGRAMMA IL TUO CONTO" diventano accantonamenti verso il Salvadanaio, sulla riga "Risparmio" del mese; tutto il resto entra da assegnare (o sulla riga scelta dalla Rubrica).
 
 ## Documentazione
 

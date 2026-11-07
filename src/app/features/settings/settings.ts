@@ -1,18 +1,16 @@
-import { Component, computed, effect, inject, signal, untracked } from '@angular/core';
+import { Component, effect, inject, signal, untracked } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
 import { MatSnackBar } from '@angular/material/snack-bar';
 import { Auth } from '../../core/auth';
-import { Ledger, monthLabel } from '../../core/ledger';
+import { Ledger } from '../../core/ledger';
 import { centsToInput, formatCents, parseSignedAmount } from '../../core/money';
 import { onlineSignal } from '../../core/online';
 import { Account, errorText, supabase } from '../../core/supabase';
 import { Sync } from '../../core/sync';
 import { Devices } from './devices';
 import { Exports } from './exports';
-
-const percent = new Intl.NumberFormat('it-IT', { style: 'percent', maximumFractionDigits: 1 });
 
 /** Svuota le copie dei dati salvate dal service worker (non l'app stessa). */
 async function clearDataCaches(): Promise<void> {
@@ -41,10 +39,7 @@ async function clearDataCaches(): Promise<void> {
     </section>
 
     <nav class="links" aria-label="Altre pagine">
-      <!-- Sugli schermi larghi Categorie sta nella barra laterale. -->
-      <a class="link narrow" routerLink="/categorie">Categorie</a>
       <a class="link" routerLink="/rubrica">Rubrica degli esercenti</a>
-      <a class="link" routerLink="/ricorrenti">Ricorrenti</a>
       <a class="link" routerLink="/debiti">Debiti e rate</a>
       <a class="link" routerLink="/desideri">Lista dei desideri</a>
       <a class="link" routerLink="/condivise">Spese condivise</a>
@@ -68,28 +63,7 @@ async function clearDataCaches(): Promise<void> {
           <input inputmode="decimal" [value]="centsToText(ledger.settings()?.opening_residual_cents)" (change)="setOpening(value($event))" />
         </label>
         <label>
-          Risparmio previsto: importo fisso al mese (€)
-          <input
-            inputmode="decimal"
-            placeholder="vuoto = percentuale dello stipendio"
-            [value]="centsToText(ledger.settings()?.savings_amount_cents)"
-            (change)="setSavingsAmount(value($event))"
-          />
-        </label>
-        @if (derivedPct()) {
-          <p class="note">{{ derivedPct() }}</p>
-        }
-        <label>
-          Oppure in percentuale dello stipendio previsto (%)
-          <input
-            inputmode="decimal"
-            [disabled]="ledger.settings()?.savings_amount_cents != null"
-            [value]="ledger.settings()?.savings_pct ?? 15"
-            (change)="setSavingsPct(value($event))"
-          />
-        </label>
-        <label>
-          Secchio del risparmio (accantonamenti e previsione)
+          Secchio della riga "Risparmio" (si crea lì se un accantonamento non la trova nel mese)
           <select (change)="saveSettings({ savings_bucket_id: value($event) || null })">
             <option value="" [selected]="!ledger.settings()?.savings_bucket_id">Nessuno</option>
             @for (b of ledger.buckets(); track b.id) {
@@ -97,11 +71,6 @@ async function clearDataCaches(): Promise<void> {
             }
           </select>
         </label>
-        <label>
-          Tasso annuo su conti e Salvadanaio (%), per la stima degli interessi
-          <input inputmode="decimal" placeholder="vuoto = nessuna stima" [value]="ledger.settings()?.interest_rate_pct ?? ''" (change)="setInterestRate(value($event))" />
-        </label>
-        <p class="note">La stima, al netto del 26% di ritenuta, compare nella previsione del mese come riga della categoria Interessi.</p>
         <label>
           Secchio dei desideri (il semaforo guarda quanto ne resta)
           <select (change)="saveSettings({ wishlist_bucket_id: value($event) || null })">
@@ -227,11 +196,6 @@ async function clearDataCaches(): Promise<void> {
       min-height: 48px;
       font: var(--mat-sys-title-medium);
     }
-    @media (min-width: 840px) {
-      .narrow {
-        display: none;
-      }
-    }
   `,
 })
 export class Settings {
@@ -275,10 +239,7 @@ export class Settings {
   protected async saveSettings(patch: {
     go_live_month?: string;
     opening_residual_cents?: number;
-    savings_pct?: number;
-    savings_amount_cents?: number | null;
     savings_bucket_id?: string | null;
-    interest_rate_pct?: number | null;
     wishlist_bucket_id?: string | null;
   }): Promise<void> {
     this.done(await supabase.from('settings').upsert(patch), 'Impostazione non salvata');
@@ -299,49 +260,6 @@ export class Settings {
       return;
     }
     void this.saveSettings({ opening_residual_cents: cents });
-  }
-
-  /** Vuoto = torna alla percentuale. */
-  protected setSavingsAmount(text: string): void {
-    const cents = text === '' ? null : parseSignedAmount(text);
-    if (text !== '' && (cents === null || cents < 0)) {
-      this.invalid('Importo non valido');
-      return;
-    }
-    void this.saveSettings({ savings_amount_cents: cents });
-  }
-
-  /** La percentuale che l'importo fisso rappresenta sullo stipendio previsto del mese selezionato. */
-  protected readonly derivedPct = computed(() => {
-    const amount = this.ledger.settings()?.savings_amount_cents;
-    if (amount == null) return '';
-    const cats = this.ledger.categoryById();
-    const salary = (this.ledger.overview()?.lines ?? [])
-      .filter((l) => cats.get(l.category_id ?? '')?.is_salary)
-      .reduce((sum, l) => sum + (l.forecast ?? 0), 0);
-    const month = monthLabel(this.ledger.month());
-    return salary > 0
-      ? `= ${percent.format(amount / salary)} dello stipendio previsto di ${month}`
-      : `La percentuale si vede quando ${month} ha uno stipendio previsto.`;
-  });
-
-  protected setSavingsPct(text: string): void {
-    const pct = Number(text.replace(',', '.'));
-    if (!text || !(pct >= 0 && pct <= 100)) {
-      this.invalid('Percentuale non valida: da 0 a 100');
-      return;
-    }
-    void this.saveSettings({ savings_pct: pct });
-  }
-
-  /** Vuoto = nessuna stima degli interessi. */
-  protected setInterestRate(text: string): void {
-    const pct = Number(text.replace(',', '.'));
-    if (text && !(pct >= 0 && pct <= 100)) {
-      this.invalid('Tasso non valido: da 0 a 100');
-      return;
-    }
-    void this.saveSettings({ interest_rate_pct: text ? pct : null });
   }
 
   /** Il saldo attuale è calcolato dal database: saldo di riferimento più i movimenti successivi alla sua data. */

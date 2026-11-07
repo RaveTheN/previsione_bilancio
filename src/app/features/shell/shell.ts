@@ -56,13 +56,6 @@ import { QuickAddLauncher } from '../quick-add/quick-add';
           <span class="badge" [attr.aria-label]="ledger.reviewCount() + ' da rivedere'">{{ ledger.reviewCount() }}</span>
         }
       </a>
-      <!-- Su schermo stretto si raggiunge da Altro: la barra in basso ha già cinque voci. -->
-      <a class="wide" routerLink="/categorie" routerLinkActive="active">
-        <svg viewBox="0 -960 960 960" aria-hidden="true">
-          <path d="M480-880 700-520H260ZM520-260a180 180 0 1 0 360 0a180 180 0 1 0-360 0ZM120-420h320v320H120Z" />
-        </svg>
-        <span>Categorie</span>
-      </a>
       <a routerLink="/altro" routerLinkActive="active">
         <svg viewBox="0 -960 960 960" aria-hidden="true">
           <path
@@ -164,10 +157,9 @@ import { QuickAddLauncher } from '../quick-add/quick-add';
       background: var(--mat-sys-error-container);
       color: var(--mat-sys-on-error-container);
     }
-    /* Griglia, grafici e categorie usano tutta la larghezza. */
+    /* Griglia e grafici usano tutta la larghezza. */
     main:has(app-year),
-    main:has(app-charts),
-    main:has(app-categories) {
+    main:has(app-charts) {
       max-width: none;
     }
     .wide {

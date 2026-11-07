@@ -1,19 +1,16 @@
-import { Component, computed, inject, Injectable, signal } from '@angular/core';
+import { Component, computed, effect, inject, Injectable, signal, untracked } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MAT_BOTTOM_SHEET_DATA, MatBottomSheet, MatBottomSheetRef } from '@angular/material/bottom-sheet';
 import { MatSnackBar } from '@angular/material/snack-bar';
-import { expenseGroupNames, nextOrder, pageOrder, saveOrder } from '../../core/category-order';
 import { Ledger, todayIso } from '../../core/ledger';
 import { centsToInput, parseAmount } from '../../core/money';
 import { onlineSignal } from '../../core/online';
 import { PendingOp } from '../../core/queue';
-import { errorText, isGenericOperation, supabase, Transaction } from '../../core/supabase';
+import { errorText, isGenericOperation, MonthLine, supabase, Transaction } from '../../core/supabase';
 import { Sync } from '../../core/sync';
 import { TransferSheet } from '../transfer/transfer';
 
-const USAGE_KEY = 'bilancio.uso-categorie';
-const BUCKET_KEY = 'bilancio.secchio-per-categoria';
 const ACCOUNT_KEY = 'bilancio.ultimo-conto';
 
 function readMap(key: string): Record<string, string | number> {
@@ -26,9 +23,11 @@ function readMap(key: string): Record<string, string | number> {
 
 /** Campi modificabili dall'app: il resto (fonte, causale importata…) non si tocca. */
 function editable(t: Transaction): Record<string, unknown> {
-  const { id, account_id, category_id, bucket_id, amount_cents, booking_date, occurred_at, note } = t;
-  return { id, account_id, category_id, bucket_id, amount_cents, booking_date, occurred_at, note };
+  const { id, account_id, line_id, amount_cents, booking_date, occurred_at, note } = t;
+  return { id, account_id, line_id, amount_cents, booking_date, occurred_at, note };
 }
+
+type LineChoice = Pick<MonthLine, 'id' | 'name' | 'bucket_id' | 'sort_order'>;
 
 @Component({
   selector: 'app-quick-add',
@@ -72,59 +71,53 @@ function editable(t: Transaction): Record<string, unknown> {
         </datalist>
       }
 
-      <div class="chips" role="group" aria-label="Categoria">
-        @for (c of shownCategories(); track c.id) {
-          <button type="button" [class.on]="categoryId() === c.id" [attr.aria-pressed]="categoryId() === c.id" (click)="pickCategory(c.id)">
-            {{ c.name }}
-          </button>
-        }
-        @if (!showAll() && hiddenCount() > 0) {
-          <button type="button" (click)="showAll.set(true)">Altre ({{ hiddenCount() }})</button>
-        }
-        <button type="button" [attr.aria-expanded]="creating()" (click)="creating.set(!creating())">+ Nuova</button>
+      <!-- Le righe del mese del movimento: anche un'entrata può andare su una riga di spesa, come un rimborso. -->
+      @for (g of lineGroups(); track g.title) {
+        <div class="chips" role="group" [attr.aria-label]="g.title">
+          <span class="group">{{ g.title }}</span>
+          @for (l of g.lines; track l.id) {
+            <button type="button" [class.on]="line()?.id === l.id" [attr.aria-pressed]="line()?.id === l.id" (click)="pickLine(l)">
+              {{ l.name }}
+            </button>
+          }
+        </div>
+      } @empty {
+        <p class="hint">{{ linesLoading() ? 'Carico le righe del mese…' : 'Nessuna riga in questo mese: creane una qui sotto.' }}</p>
+      }
+      <div class="chips">
+        <button type="button" [attr.aria-expanded]="creating()" (click)="creating.set(!creating())">+ Nuova riga</button>
       </div>
 
       @if (creating()) {
-        <div class="new-category">
+        <div class="new-line">
           <label>
-            Nuova categoria {{ income() ? 'di entrata' : 'di spesa' }}
-            <!-- Invio crea la categoria, non salva il movimento. -->
+            Nome della riga
+            <!-- Invio crea la riga, non salva il movimento. -->
             <input
-              name="newCategory"
+              name="newLine"
               autocomplete="off"
               placeholder="Es. Abbonamento Claude"
-              [(ngModel)]="newCategoryName"
-              (keydown.enter)="$event.preventDefault(); createCategory()"
+              [(ngModel)]="newLineName"
+              (keydown.enter)="$event.preventDefault(); createLine()"
             />
           </label>
-          @if (!income()) {
-            <label>
-              Gruppo
-              <select name="newGroup" [(ngModel)]="newGroup">
-                @for (g of groupNames(); track g) {
-                  <option [value]="g">{{ g }}</option>
-                }
-              </select>
-            </label>
-          }
+          <label>
+            Secchio
+            <select name="newBucket" [(ngModel)]="newLineBucket">
+              @for (b of ledger.buckets(); track b.id) {
+                <option [value]="b.id">{{ b.name }}</option>
+              }
+              <option value="">Entrate</option>
+            </select>
+          </label>
           @if (!online()) {
-            <span class="hint">Per creare una categoria serve la connessione.</span>
+            <span class="hint">Per creare una riga serve la connessione.</span>
           }
           <div class="actions">
-            <button mat-stroked-button type="button" [disabled]="!online() || !newCategoryName.trim() || creatingBusy()" (click)="createCategory()">
+            <button mat-stroked-button type="button" [disabled]="!online() || !newLineName.trim() || creatingBusy()" (click)="createLine()">
               Crea e scegli
             </button>
           </div>
-        </div>
-      }
-
-      @if (needsBucket()) {
-        <div class="segmented" role="group" aria-label="Secchio">
-          @for (b of ledger.buckets(); track b.id) {
-            <button type="button" [class.on]="bucketId() === b.id" [attr.aria-pressed]="bucketId() === b.id" (click)="toggleBucket(b.id)">
-              {{ b.name }}
-            </button>
-          }
         </div>
       }
 
@@ -138,7 +131,7 @@ function editable(t: Transaction): Record<string, unknown> {
             }
           </select>
         </label>
-        <label>Data <input type="date" name="date" required [(ngModel)]="date" /></label>
+        <label>Data <input type="date" name="date" required [ngModel]="date()" (ngModelChange)="date.set($event)" /></label>
         <label>Nota <input name="note" autocomplete="off" [(ngModel)]="note" /></label>
         <label>
           Tag (separati da virgola)
@@ -213,14 +206,19 @@ function editable(t: Transaction): Record<string, unknown> {
       flex-wrap: wrap;
       gap: 8px;
     }
-    .new-category {
+    .chips .group {
+      flex-basis: 100%;
+      font: var(--mat-sys-label-medium);
+      color: var(--mat-sys-on-surface-variant);
+    }
+    .new-line {
       display: grid;
       gap: 12px;
       padding: 12px;
       border-radius: 12px;
       background: var(--mat-sys-surface-container);
     }
-    .new-category label,
+    .new-line label,
     details label,
     .merchant {
       display: grid;
@@ -229,7 +227,7 @@ function editable(t: Transaction): Record<string, unknown> {
       font: var(--mat-sys-label-large);
     }
     .merchant,
-    .new-category label {
+    .new-line label {
       margin-top: 0;
     }
     .hint {
@@ -238,8 +236,8 @@ function editable(t: Transaction): Record<string, unknown> {
       overflow-wrap: anywhere;
     }
     .merchant input,
-    .new-category input,
-    .new-category select,
+    .new-line input,
+    .new-line select,
     details input,
     details select {
       min-height: 44px;
@@ -288,12 +286,9 @@ export class QuickAdd {
 
   protected readonly income = signal(false);
   protected readonly amountText = signal('');
-  protected readonly categoryId = signal<string | null>(null);
-  protected readonly bucketId = signal<string | null>(null);
-  protected readonly showAll = signal(false);
   protected readonly error = signal('');
   protected accountId = '';
-  protected date = todayIso();
+  protected readonly date = signal(todayIso());
   protected note = '';
   protected tagsText = '';
   /** Nome scelto per l'esercente del movimento; si salva dopo l'invio (serve la connessione). */
@@ -304,45 +299,46 @@ export class QuickAdd {
   protected readonly amountCents = computed(() => parseAmount(this.amountText()));
   protected readonly activeAccounts = computed(() => this.ledger.accounts().filter((a) => !a.archived));
 
-  /** Un'entrata può stare su una categoria di spesa, come un rimborso: il secchio dipende dalla categoria, non dal verso. */
-  protected readonly needsBucket = computed(() => {
-    const kind = this.ledger.categoryById().get(this.categoryId() ?? '')?.kind;
-    return kind ? kind !== 'income' : !this.income();
-  });
-
-  private readonly candidates = computed(() => {
-    const usage = readMap(USAGE_KEY);
-    // Per un'entrata prima le categorie di entrata, poi le altre per i rimborsi.
-    const first = (kind: string) => Number(this.income() && kind === 'income');
-    return this.ledger
-      .categories()
-      .filter((c) => !c.archived && (this.income() || c.kind !== 'income'))
-      .sort((a, b) => first(b.kind) - first(a.kind) || (Number(usage[b.id] ?? 0) - Number(usage[a.id] ?? 0)) || a.sort_order - b.sort_order);
-  });
-  protected readonly shownCategories = computed(() =>
-    this.showAll() ? this.candidates() : this.candidates().slice(0, 8),
+  /** Le righe del mese del movimento: quelle già caricate, o lette apposta se è un altro mese. */
+  private readonly lineMonth = computed(() => this.date().slice(0, 7) + '-01');
+  private readonly otherLines = signal<{ month: string; lines: LineChoice[] } | null>(null);
+  protected readonly lines = computed<LineChoice[]>(() =>
+    this.lineMonth() === this.ledger.month() ? this.ledger.lines() : this.otherLines()?.month === this.lineMonth() ? this.otherLines()!.lines : [],
   );
-  protected readonly hiddenCount = computed(() => this.candidates().length - this.shownCategories().length);
+  protected readonly linesLoading = computed(() => this.lineMonth() !== this.ledger.month() && this.otherLines()?.month !== this.lineMonth());
 
-  /** Nuova categoria creata da qui: solo online, come nella pagina Categorie. */
+  /** La riga scelta; cambiando mese si ritrova per nome, come fa il database. */
+  private readonly picked = signal<LineChoice | null>(null);
+  protected readonly line = computed(() => {
+    const p = this.picked();
+    if (!p) return null;
+    return this.lines().find((l) => l.id === p.id) ?? this.lines().find((l) => l.name.toLowerCase() === p.name.toLowerCase()) ?? null;
+  });
+
+  /** Un gruppo per secchio, più le entrate: prima quelle per un'entrata, in fondo per una spesa. */
+  protected readonly lineGroups = computed(() => {
+    const group = (title: string, bucketId: string | null) => ({ title, bucketId, lines: this.lines().filter((l) => l.bucket_id === bucketId) });
+    const buckets = this.ledger.buckets().map((b) => group(b.name, b.id));
+    // Dalla wishlist: prima il secchio del desiderio.
+    buckets.sort((a, b) => Number(b.bucketId === this.draft?.bucketId) - Number(a.bucketId === this.draft?.bucketId));
+    const income = group('Entrate', null);
+    return (this.income() ? [income, ...buckets] : [...buckets, income]).filter((g) => g.lines.length);
+  });
+
+  /** Nuova riga creata da qui: solo online, come nella pagina Mese. */
   protected readonly online = onlineSignal();
   protected readonly creating = signal(false);
   protected readonly creatingBusy = signal(false);
-  protected newCategoryName = '';
-  protected newGroup = 'Altro';
-  protected readonly groupNames = computed(() => expenseGroupNames(this.ledger.categories()));
+  protected newLineName = '';
+  protected newLineBucket = this.draft?.bucketId ?? '';
 
   constructor() {
     const t = this.tx;
     if (t) {
       this.income.set(t.amount_cents > 0);
       this.amountText.set((Math.abs(t.amount_cents) / 100).toFixed(2).replace('.', ','));
-      this.categoryId.set(t.category_id);
-      this.bucketId.set(t.bucket_id);
-      // La categoria di un rimborso sta tra le "Altre": deve restare visibile riaprendo il movimento.
-      this.showAll.set(t.amount_cents > 0 && this.needsBucket() && !!t.category_id);
       this.accountId = t.account_id;
-      this.date = t.booking_date;
+      this.date.set(t.booking_date);
       this.note = t.note ?? '';
       this.tagsText = (t.transaction_tags ?? [])
         .map((x) => this.ledger.tagById().get(x.tag_id)?.name)
@@ -355,57 +351,62 @@ export class QuickAdd {
       if (this.draft) {
         this.amountText.set(centsToInput(this.draft.cents));
         this.note = this.draft.note;
-        this.bucketId.set(this.draft.bucketId);
       }
     }
+    this.newLineBucket ||= this.ledger.buckets()[0]?.id ?? '';
+    effect(() => {
+      const month = this.lineMonth();
+      if (month !== this.ledger.month()) untracked(() => void this.loadLines(month));
+    });
+    // La riga del movimento può non essere nel mese caricato: si ritrova appena arrivano le righe.
+    if (t?.line_id) {
+      const id = t.line_id;
+      effect(() => {
+        const found = this.lines().find((l) => l.id === id);
+        if (found && !untracked(this.picked)) this.picked.set(found);
+      });
+    }
+  }
+
+  private async loadLines(month: string): Promise<void> {
+    // Un mese ancora vuoto prende le righe del precedente, come quando lo apri.
+    if (this.online()) await supabase.rpc('ensure_month_lines', { p_month: month });
+    const res = await supabase.from('budget_lines').select('id, name, bucket_id, sort_order').eq('month', month).order('sort_order').order('name');
+    if (res.data) this.otherLines.set({ month, lines: res.data });
   }
 
   protected setIncome(value: boolean): void {
-    if (value === this.income()) return;
     this.income.set(value);
-    this.categoryId.set(null);
-    this.bucketId.set(null);
   }
 
-  protected pickCategory(id: string): void {
-    this.categoryId.set(id);
-    // Proposta, non regola: il secchio resta visibile e lo cambi con un tocco.
-    this.bucketId.set(this.needsBucket() ? ((readMap(BUCKET_KEY)[id] as string | undefined) ?? this.bucketId()) : null);
+  protected pickLine(l: LineChoice): void {
+    this.picked.set(this.line()?.id === l.id ? null : l);
   }
 
-  /** Crea la categoria in fondo al suo gruppo e la sceglie per questo movimento. */
-  protected async createCategory(): Promise<void> {
-    const name = this.newCategoryName.trim();
+  /** Crea la riga in fondo al mese del movimento e la sceglie. */
+  protected async createLine(): Promise<void> {
+    const name = this.newLineName.trim();
     if (!name || !this.online() || this.creatingBusy()) return;
-    const kind = this.income() ? 'income' : 'expense';
     this.creatingBusy.set(true);
     try {
+      const order = Math.max(0, ...this.lines().map((l) => l.sort_order)) + 1;
       const res = await supabase
-        .from('categories')
-        .insert({ name, kind, super_category: kind === 'expense' ? this.newGroup : null, sort_order: nextOrder(this.ledger.categories(), kind) })
-        .select('id')
+        .from('budget_lines')
+        .insert({ month: this.lineMonth(), name, bucket_id: this.newLineBucket || null, amount_cents: 0, sort_order: order })
+        .select('id, name, bucket_id, sort_order')
         .single();
       if (res.error) {
-        this.error.set(res.error.code === '23505' ? 'Esiste già una categoria con questo nome' : 'Categoria non creata: ' + errorText(res));
+        this.error.set(res.error.code === '23505' ? 'Esiste già una riga con questo nome nel mese' : 'Riga non creata: ' + errorText(res));
         return;
       }
-      await this.ledger.load();
-      // L'ordine serve solo a Mese e Anno: se non si salva, la categoria c'è comunque.
-      await saveOrder(pageOrder(this.ledger.categories(), kind));
-      void this.ledger.load();
+      await (this.lineMonth() === this.ledger.month() ? this.ledger.load() : this.loadLines(this.lineMonth()));
       this.error.set('');
-      this.newCategoryName = '';
+      this.newLineName = '';
       this.creating.set(false);
-      // Ancora mai usata: senza "tutte" resterebbe nascosta sotto "Altre".
-      this.showAll.set(true);
-      this.pickCategory(res.data.id);
+      this.picked.set(res.data);
     } finally {
       this.creatingBusy.set(false);
     }
-  }
-
-  protected toggleBucket(id: string): void {
-    this.bucketId.set(this.bucketId() === id ? null : id);
   }
 
   protected save(): void {
@@ -421,26 +422,26 @@ export class QuickAdd {
             t.source !== 'manual' &&
             t.account_id === this.accountId &&
             t.amount_cents === signed &&
-            Math.abs(Date.parse(t.booking_date) - Date.parse(this.date)) <= 86_400_000,
+            Math.abs(Date.parse(t.booking_date) - Date.parse(this.date())) <= 86_400_000,
         );
       if (twin && !confirm(`Sembra già registrata: ${twin.merchant_raw ?? 'movimento'} del ${twin.booking_date}. Salvare comunque?`)) {
         return;
       }
     }
     const id = this.tx?.id ?? crypto.randomUUID();
+    const date = this.date();
     const occurredAt =
-      this.tx?.booking_date === this.date
+      this.tx?.booking_date === date
         ? this.tx.occurred_at
-        : this.date === todayIso()
+        : date === todayIso()
           ? new Date().toISOString()
-          : new Date(this.date + 'T12:00:00').toISOString();
+          : new Date(date + 'T12:00:00').toISOString();
     const row = {
       id,
       account_id: this.accountId,
-      category_id: this.categoryId(),
-      bucket_id: this.needsBucket() ? this.bucketId() : null,
+      line_id: this.line()?.id ?? null,
       amount_cents: signed,
-      booking_date: this.date,
+      booking_date: date,
       occurred_at: occurredAt,
       note: this.note.trim() || null,
     };
@@ -466,14 +467,6 @@ export class QuickAdd {
       return;
     }
 
-    const usage = readMap(USAGE_KEY);
-    if (row.category_id) {
-      usage[row.category_id] = Number(usage[row.category_id] ?? 0) + 1;
-      localStorage.setItem(USAGE_KEY, JSON.stringify(usage));
-      if (row.bucket_id) {
-        localStorage.setItem(BUCKET_KEY, JSON.stringify({ ...readMap(BUCKET_KEY), [row.category_id]: row.bucket_id }));
-      }
-    }
     localStorage.setItem(ACCOUNT_KEY, JSON.stringify({ id: row.account_id }));
 
     const undo: PendingOp[] = this.tx
@@ -487,9 +480,7 @@ export class QuickAdd {
       : [{ table: 'transactions', kind: 'delete', match: { id } }];
     // Solo un movimento ancora da assegnare insegna la regola all'esercente:
     // correggerne uno già assegnato resta un'eccezione.
-    const before = this.tx && this.ledger.categoryById().get(this.tx.category_id ?? '');
-    const wasUnassigned = !before || (before.kind !== 'income' && !this.tx?.bucket_id);
-    const propagate = this.hasMerchant && wasUnassigned && !!row.category_id;
+    const propagate = this.hasMerchant && !this.tx?.line_id && !!row.line_id;
     const name = this.merchantName.trim();
     this.ref.dismiss({ id, undo, propagate, merchantName: name && name !== this.initialMerchantName ? name : null });
   }

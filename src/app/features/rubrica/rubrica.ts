@@ -65,11 +65,19 @@ import { errorText, InboxName, Merchant, MerchantAlias, supabase } from '../../c
 
       <section>
         <h2>Esercenti</h2>
-        <p class="note">Categoria e secchio valgono subito per i movimenti ancora da assegnare e per quelli nuovi: quelli già assegnati non cambiano.</p>
+        <p class="note">
+          La riga è un nome: ogni movimento va sulla riga con quel nome nel suo mese, se c'è (altrimenti resta da assegnare).
+          Vale subito per i movimenti ancora da assegnare e per quelli nuovi; quelli già assegnati non cambiano, e puoi sempre spostarli.
+        </p>
         <p class="note">
           Per un esercente che cambia da un acquisto all'altro (es. Amazon, a volte Fun e a volte Fundamentals) scegli «Chiedi ogni volta»:
-          ogni suo movimento resta da assegnare finché non scegli tu il secchio, e assegnarne uno non tocca gli altri.
+          ogni suo movimento resta da assegnare finché non scegli tu la riga, e assegnarne uno non tocca gli altri.
         </p>
+        <datalist id="nomi-righe">
+          @for (n of lineNames(); track n) {
+            <option [value]="n"></option>
+          }
+        </datalist>
         <ul>
           @for (m of ledger.merchants(); track m.id) {
             <li>
@@ -78,22 +86,18 @@ import { errorText, InboxName, Merchant, MerchantAlias, supabase } from '../../c
                 <input type="checkbox" [checked]="m.ask_each_time" (change)="setAsk(m, $event)" />
                 Chiedi ogni volta (cambia da un acquisto all'altro)
               </label>
-              <div class="row">
-                <select aria-label="Categoria predefinita" (change)="setCategory(m, value($event))">
-                  <option value="" [selected]="!m.default_category_id">Nessuna categoria</option>
-                  @for (c of categories(); track c.id) {
-                    <option [value]="c.id" [selected]="c.id === m.default_category_id">{{ c.name }}</option>
-                  }
-                </select>
-                @if (!m.ask_each_time && ledger.categoryById().get(m.default_category_id ?? '')?.kind !== 'income') {
-                  <select aria-label="Secchio predefinito" (change)="setBucket(m, value($event))">
-                    <option value="" [selected]="!m.default_bucket_id">Nessun secchio</option>
-                    @for (b of ledger.buckets(); track b.id) {
-                      <option [value]="b.id" [selected]="b.id === m.default_bucket_id">{{ b.name }}</option>
-                    }
-                  </select>
-                }
-              </div>
+              @if (!m.ask_each_time) {
+                <div class="row">
+                  <input
+                    list="nomi-righe"
+                    autocomplete="off"
+                    placeholder="Riga (es. Benzina)"
+                    aria-label="Riga predefinita"
+                    [value]="m.default_line_name ?? ''"
+                    (change)="setLine(m, value($event))"
+                  />
+                </div>
+              }
               <div class="aliases">
                 @for (a of aliasesOf(m.id); track a.id) {
                   <span class="alias">
@@ -250,7 +254,10 @@ export class Rubrica implements OnInit {
   protected readonly inbox = signal<InboxName[]>([]);
   private readonly aliases = signal<MerchantAlias[]>([]);
   protected readonly ignored = computed(() => this.aliases().filter((a) => a.ignored));
-  protected readonly categories = computed(() => this.ledger.categories().filter((c) => !c.archived));
+  /** Suggerimenti: i nomi delle righe del mese aperto e quelli già usati dalle regole. */
+  protected readonly lineNames = computed(() =>
+    [...new Set([...this.ledger.lines().map((l) => l.name), ...this.ledger.merchants().flatMap((m) => m.default_line_name ?? [])])].sort(),
+  );
   protected readonly open = signal<string | null>(null);
   protected name = '';
   protected contains = false;
@@ -300,58 +307,27 @@ export class Rubrica implements OnInit {
     this.done(await supabase.from('merchant_aliases').delete().eq('id', a.id), 'Non salvato');
   }
 
-  protected async setCategory(m: Merchant, categoryId: string): Promise<void> {
-    // Un'entrata non ha secchio.
-    const income = this.ledger.categoryById().get(categoryId)?.kind === 'income';
-    const bucketId = income ? null : m.default_bucket_id;
-    if (await this.update(m, { default_category_id: categoryId || null, default_bucket_id: bucketId })) {
-      await this.applyRule(m, categoryId || null, bucketId);
-    }
+  /** La regola assegna subito i movimenti dell'esercente ancora da assegnare, senza toccare gli altri. */
+  protected async setLine(m: Merchant, name: string): Promise<void> {
+    if (!(await this.update(m, { default_line_name: name || null })) || !name) return;
+    const res = await supabase.rpc('apply_merchant_rule', { p_merchant_id: m.id });
+    if (res.error) this.snackBar.open('Movimenti non aggiornati: ' + errorText(res), 'OK');
+    const n = res.data ?? 0;
+    if (n) this.snackBar.open(`${m.name}: assegnat${n === 1 ? 'o 1 movimento' : `i ${n} movimenti`}`, 'OK', { duration: 4000 });
+    void this.ledger.load();
   }
 
-  /** I movimenti restano con categoria e secchio, senza esercente; i suoi nomi (alias) spariscono con lui. */
+  /** I movimenti restano sulla loro riga, senza esercente; i suoi nomi (alias) spariscono con lui. */
   protected async remove(m: Merchant): Promise<void> {
-    const text = `Eliminare ${m.name}? I suoi movimenti restano con categoria e secchio; i nomi della banca tornano in Da assegnare.`;
+    const text = `Eliminare ${m.name}? I suoi movimenti restano sulla loro riga; i nomi della banca tornano in Da assegnare.`;
     if (!confirm(text)) return;
     this.done(await supabase.from('merchants').delete().eq('id', m.id), 'Esercente non eliminato');
   }
 
-  /** Chiedi ogni volta: la regola perde il secchio; la categoria, se c'è, resta. */
+  /** Chiedi ogni volta: la regola perde la riga. */
   protected setAsk(m: Merchant, e: Event): void {
     const ask = (e.target as HTMLInputElement).checked;
-    void this.update(m, ask ? { ask_each_time: true, default_bucket_id: null } : { ask_each_time: false });
-  }
-
-  protected async setBucket(m: Merchant, bucketId: string): Promise<void> {
-    if (await this.update(m, { default_bucket_id: bucketId || null })) {
-      await this.applyRule(m, m.default_category_id, bucketId || null);
-    }
-  }
-
-  /** La regola completa i movimenti dell'esercente ancora da assegnare, senza toccare gli altri. */
-  private async applyRule(m: Merchant, categoryId: string | null, bucketId: string | null): Promise<void> {
-    if (!categoryId) return;
-    const withCategory = await supabase
-      .from('transactions')
-      .update({ category_id: categoryId })
-      .eq('merchant_id', m.id)
-      .is('category_id', null)
-      .select('id');
-    // Poi il secchio, dove manca, sui movimenti di questa categoria (compresi quelli appena aggiornati).
-    const withBucket = bucketId
-      ? await supabase
-          .from('transactions')
-          .update({ bucket_id: bucketId })
-          .eq('merchant_id', m.id)
-          .eq('category_id', categoryId)
-          .is('bucket_id', null)
-          .select('id')
-      : { data: [], error: null, status: 200 };
-    const error = withCategory.error ? withCategory : withBucket.error ? withBucket : null;
-    if (error) this.snackBar.open('Movimenti non aggiornati: ' + errorText(error), 'OK');
-    const n = new Set([...(withCategory.data ?? []), ...(withBucket.data ?? [])].map((r) => r.id)).size;
-    if (n) this.snackBar.open(`${m.name}: assegnat${n === 1 ? 'o 1 movimento' : `i ${n} movimenti`}`, 'OK', { duration: 4000 });
-    void this.load();
+    void this.update(m, ask ? { ask_each_time: true, default_line_name: null } : { ask_each_time: false });
   }
 
   protected async update(m: Merchant, patch: Partial<Merchant>): Promise<boolean> {

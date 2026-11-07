@@ -8,7 +8,6 @@ export const supabase = createClient<Database>(environment.supabaseUrl, environm
 });
 
 type Tables = Database['public']['Tables'];
-export type Category = Tables['categories']['Row'];
 export type Bucket = Tables['buckets']['Row'];
 export type Account = Tables['accounts']['Row'];
 export type Tag = Tables['tags']['Row'];
@@ -20,7 +19,6 @@ export type IngestEvent = Tables['ingest_events']['Row'];
 export type Merchant = Tables['merchants']['Row'];
 export type MerchantAlias = Tables['merchant_aliases']['Row'];
 export type ParseRule = Tables['parse_rules']['Row'];
-export type RecurringRule = Tables['recurring_rules']['Row'];
 export type BudgetLine = Tables['budget_lines']['Row'];
 export type WishlistItem = Tables['wishlist_items']['Row'];
 export type Person = Tables['people']['Row'];
@@ -28,23 +26,23 @@ export type SharedEntry = Tables['shared_entries']['Row'];
 export type DebtPlan = Database['public']['Functions']['debt_plan']['Returns'][number];
 export type InboxName = Database['public']['Views']['merchant_inbox']['Row'];
 
-/** Riga di month_overview: categoria e secchio, con previsione ed effettivo del mese. */
+/** Riga di month_overview: una riga del mese (secchio vuoto = entrata), con previsto ed effettivo. */
 export interface MonthLine {
-  category_id: string | null;
+  id: string;
+  name: string;
   bucket_id: string | null;
-  /** Solo senza categoria: separa le entrate dalle uscite da assegnare. */
-  inflow: boolean | null;
-  /** null = nessuna previsione per la riga. */
-  forecast: number | null;
+  sort_order: number;
+  forecast: number;
+  /** Somma con segno dei movimenti assegnati: i rimborsi compensano le spese. */
   actual: number;
   n: number;
-  /** Risparmio predefinito (percentuale dello stipendio), non scritto dall'utente. */
-  is_default: boolean;
 }
 
-/** Risultato (jsonb) di month_overview: la forma è definita nella migrazione "previsioni". */
+/** Risultato (jsonb) di month_overview: la forma è definita nella migrazione "righe_libere". */
 export interface MonthOverview {
   lines: MonthLine[];
+  /** Movimenti del mese senza riga. */
+  unassigned: { actual: number; n: number };
   income_forecast: number;
   income_actual: number;
   expense_forecast: number;
@@ -59,9 +57,9 @@ export interface MonthOverview {
   /** null se non ci sono conti riserva. */
   reserve_forecast: number | null;
   reserve_actual: number | null;
-  /** Percentuali sullo stipendio; null quando lo stipendio manca. */
+  /** Percentuali sulle entrate; null quando le entrate mancano. */
   buckets: { bucket_id: string; target_pct: number; forecast_pct: number | null; actual_pct: number | null }[];
-  /** Le rate che cadono nel mese e il loro peso sullo stipendio; null quando lo stipendio manca. */
+  /** Le rate che cadono nel mese e il loro peso sulle entrate; null quando le entrate mancano. */
   debt_cents: number;
   debt_pct: number | null;
 }

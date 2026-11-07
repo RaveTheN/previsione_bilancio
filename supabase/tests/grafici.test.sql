@@ -1,7 +1,7 @@
--- Fase 8: dati dei grafici, coerenti con la vista mese. Dati finti.
+-- Dati dei grafici, coerenti con la vista mese. Dati finti.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(18);
+select plan(12);
 
 insert into auth.users (id, email) values
   ('00000000-0000-0000-0000-00000000000a', 'a@example.com'),
@@ -10,12 +10,11 @@ insert into public.accounts (id, user_id, name) values
   ('10000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-00000000000a', 'Banca');
 insert into public.buckets (id, user_id, name, target_pct) values
   ('20000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-00000000000a', 'Fun', 35);
-insert into public.categories (id, user_id, name, kind, is_salary, sort_order) values
-  ('30000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-00000000000a', 'Stipendio', 'income', true, 1),
-  ('30000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-00000000000a', 'Abbonamenti', 'expense', false, 2),
-  ('30000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-00000000000a', 'Risparmio', 'saving', false, 3);
-insert into public.settings (user_id, go_live_month, opening_residual_cents, savings_pct) values
-  ('00000000-0000-0000-0000-00000000000a', '2026-09-01', 0, 15);
+insert into public.settings (user_id, go_live_month, opening_residual_cents) values
+  ('00000000-0000-0000-0000-00000000000a', '2026-09-01', 0);
+insert into public.budget_lines (id, user_id, month, name, bucket_id, amount_cents) values
+  ('30000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-00000000000a', '2026-10-01', 'Stipendio', null, 200000),
+  ('30000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-00000000000a', '2026-10-01', 'Abbonamenti', '20000000-0000-0000-0000-000000000001', -1000);
 
 -- La Rubrica riunisce due nomi della banca sotto un solo esercente.
 insert into public.merchants (id, user_id, name) values
@@ -26,42 +25,24 @@ insert into public.merchant_aliases (user_id, merchant_id, pattern) values
 insert into public.merchant_aliases (user_id, pattern, ignored) values
   ('00000000-0000-0000-0000-00000000000a', 'GENERICO PAY', true);
 
-insert into public.recurring_rules
-  (id, user_id, name, amount_cents, account_id, category_id, bucket_id, frequency, start_date, end_date, generated_until) values
-  -- Il 5 di ogni mese, elaborata fino a ottobre: ha un movimento a ottobre, poi solo previsioni.
-  ('50000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-00000000000a', 'Mensile', -1000,
-   '10000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000002', '20000000-0000-0000-0000-000000000001',
-   'monthly', '2026-01-05', null, '2026-10-31'),
-  -- Annuale a dicembre, già finita al 2026-11-15: ultima scadenza nel 2025.
-  ('50000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-00000000000a', 'Annuale finita', -50000,
-   '10000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000002', '20000000-0000-0000-0000-000000000001',
-   'yearly', '2024-12-10', '2026-01-01', '2026-10-31'),
-  -- Un'entrata e un accantonamento non sono costi.
-  ('50000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-00000000000a', 'Entrata', 1000,
-   '10000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000001', null,
-   'monthly', '2026-01-05', null, '2026-10-31'),
-  ('50000000-0000-0000-0000-000000000004', '00000000-0000-0000-0000-00000000000a', 'Accantonamento', -1000,
-   '10000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000003', '20000000-0000-0000-0000-000000000001',
-   'monthly', '2026-01-05', null, '2026-10-31');
-
 insert into public.transactions
-  (user_id, account_id, category_id, bucket_id, amount_cents, booking_date, merchant_raw, status, transfer_group_id, recurring_rule_id) values
-  ('00000000-0000-0000-0000-00000000000a', '10000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000001', null, 200000, '2026-10-01', null, 'confirmed', null, null),
-  ('00000000-0000-0000-0000-00000000000a', '10000000-0000-0000-0000-000000000001', null, null, -1000, '2026-10-02', 'BAR ESEMPIO SRL', 'confirmed', null, null),
-  ('00000000-0000-0000-0000-00000000000a', '10000000-0000-0000-0000-000000000001', null, null, -500, '2026-10-03', 'BAR ESEMPIO', 'confirmed', null, null),
+  (user_id, account_id, line_id, amount_cents, booking_date, merchant_raw, status, transfer_group_id) values
+  ('00000000-0000-0000-0000-00000000000a', '10000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000001', 200000, '2026-10-01', null, 'confirmed', null),
+  ('00000000-0000-0000-0000-00000000000a', '10000000-0000-0000-0000-000000000001', null, -1000, '2026-10-02', 'BAR ESEMPIO SRL', 'confirmed', null),
+  ('00000000-0000-0000-0000-00000000000a', '10000000-0000-0000-0000-000000000001', null, -500, '2026-10-03', 'BAR ESEMPIO', 'confirmed', null),
   -- Reso: si sottrae allo stesso esercente.
-  ('00000000-0000-0000-0000-00000000000a', '10000000-0000-0000-0000-000000000001', null, null, 200, '2026-10-04', 'BAR ESEMPIO', 'confirmed', null, null),
+  ('00000000-0000-0000-0000-00000000000a', '10000000-0000-0000-0000-000000000001', null, 200, '2026-10-04', 'BAR ESEMPIO', 'confirmed', null),
   -- Senza Rubrica: vale il nome della banca, ripulito.
-  ('00000000-0000-0000-0000-00000000000a', '10000000-0000-0000-0000-000000000001', null, null, -4000, '2026-10-05', 'SUMUP *NEGOZIO', 'confirmed', null, null),
+  ('00000000-0000-0000-0000-00000000000a', '10000000-0000-0000-0000-000000000001', null, -4000, '2026-10-05', 'SUMUP *NEGOZIO', 'confirmed', null),
   -- Fuori dalla classifica: operazione generica, nome ignorato, rifiutato, trasferimento, mese futuro, solo entrate.
-  ('00000000-0000-0000-0000-00000000000a', '10000000-0000-0000-0000-000000000001', null, null, -9000, '2026-10-06', 'BONIFICO ESEGUITO', 'confirmed', null, null),
-  ('00000000-0000-0000-0000-00000000000a', '10000000-0000-0000-0000-000000000001', null, null, -9000, '2026-10-07', 'GENERICO PAY', 'confirmed', null, null),
-  ('00000000-0000-0000-0000-00000000000a', '10000000-0000-0000-0000-000000000001', null, null, -9000, '2026-10-08', 'RIFIUTATO', 'declined', null, null),
-  ('00000000-0000-0000-0000-00000000000a', '10000000-0000-0000-0000-000000000001', null, null, -9000, '2026-10-09', 'GIROCONTO', 'confirmed', '70000000-0000-0000-0000-000000000001', null),
-  ('00000000-0000-0000-0000-00000000000a', '10000000-0000-0000-0000-000000000001', null, null, -9000, '2026-12-09', 'FUTURO', 'confirmed', null, null),
-  ('00000000-0000-0000-0000-00000000000a', '10000000-0000-0000-0000-000000000001', null, null, 9000, '2026-10-10', 'RIMBORSO', 'confirmed', null, null),
-  -- Pagamento della ricorrente, con un importo diverso dal previsto: conta quello reale.
-  ('00000000-0000-0000-0000-00000000000a', '10000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000002', '20000000-0000-0000-0000-000000000001', -1100, '2026-10-05', null, 'confirmed', null, '50000000-0000-0000-0000-000000000001');
+  ('00000000-0000-0000-0000-00000000000a', '10000000-0000-0000-0000-000000000001', null, -9000, '2026-10-06', 'BONIFICO ESEGUITO', 'confirmed', null),
+  ('00000000-0000-0000-0000-00000000000a', '10000000-0000-0000-0000-000000000001', null, -9000, '2026-10-07', 'GENERICO PAY', 'confirmed', null),
+  ('00000000-0000-0000-0000-00000000000a', '10000000-0000-0000-0000-000000000001', null, -9000, '2026-10-08', 'RIFIUTATO', 'declined', null),
+  ('00000000-0000-0000-0000-00000000000a', '10000000-0000-0000-0000-000000000001', null, -9000, '2026-10-09', 'GIROCONTO', 'confirmed', '70000000-0000-0000-0000-000000000001'),
+  ('00000000-0000-0000-0000-00000000000a', '10000000-0000-0000-0000-000000000001', null, -9000, '2026-12-09', 'FUTURO', 'confirmed', null),
+  ('00000000-0000-0000-0000-00000000000a', '10000000-0000-0000-0000-000000000001', null, 9000, '2026-10-10', 'RIMBORSO', 'confirmed', null),
+  -- Una spesa assegnata a una riga, senza nome di esercente.
+  ('00000000-0000-0000-0000-00000000000a', '10000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000002', -1100, '2026-10-05', null, 'confirmed', null);
 
 set local role authenticated;
 select set_config('request.jwt.claims', '{"sub": "00000000-0000-0000-0000-00000000000a", "role": "authenticated"}', true);
@@ -102,66 +83,35 @@ select is(
 );
 
 select is(
-  (select jsonb_agg(r ->> 'name') from risultato, jsonb_array_elements(d -> 'recurring') r),
-  '["Annuale finita", "Mensile"]'::jsonb,
-  'solo le spese, dalla più costosa all''anno: entrate e accantonamenti restano fuori'
-);
-select is(
-  (select r -> 'months' from risultato, jsonb_array_elements(d -> 'recurring') r where r ->> 'name' = 'Mensile'),
-  '{"2026-10-01": 1100, "2026-11-01": 1000, "2026-12-01": 1000}'::jsonb,
-  'nei mesi elaborati vale il movimento reale, nei successivi l''importo previsto, senza doppioni'
-);
-select is(
-  (select r -> 'months' from risultato, jsonb_array_elements(d -> 'recurring') r where r ->> 'name' = 'Annuale finita'),
-  '{}'::jsonb,
-  'dopo la fine una ricorrente non costa più nulla'
-);
-select is(
-  (select array_agg((r ->> 'yearly')::bigint order by r ->> 'name') from risultato, jsonb_array_elements(d -> 'recurring') r),
-  array[50000, 12000]::bigint[],
-  'costo annuo: una volta le annuali, dodici le mensili'
-);
-select is(
-  (select array_agg((r ->> 'active')::boolean order by r ->> 'name') from risultato, jsonb_array_elements(d -> 'recurring') r),
-  array[false, true],
-  'una ricorrente finita non è più attiva'
-);
-
-select is(
-  (select sum((s ->> 'cents')::bigint) from risultato, jsonb_array_elements(d -> 'spending') s),
-  (select -sum((m ->> 'expense_actual')::bigint) from risultato, jsonb_array_elements(d -> 'months') m where m ->> 'month' <= '2026-11-01'),
-  'la torta somma esattamente le uscite della vista mese, fino al mese in corso'
+  (select sum((s ->> 'cents')::bigint) from risultato, jsonb_array_elements(d -> 'spending') s where s ->> 'bucket_id' is not null),
+  (select -sum((m ->> 'expense_actual')::bigint + (m ->> 'saving_actual')::bigint)
+   from risultato, jsonb_array_elements(d -> 'months') m where m ->> 'month' <= '2026-11-01'),
+  'le fette dei secchi sommano esattamente le uscite della vista mese, fino al mese in corso'
 );
 select bag_eq(
-  $$ select s ->> 'category_id' as categoria, s ->> 'merchant' as esercente, (s ->> 'cents')::bigint as centesimi
+  $$ select s ->> 'bucket_id' as secchio, s ->> 'line' as riga, s ->> 'merchant' as esercente, (s ->> 'cents')::bigint as centesimi
      from risultato, jsonb_array_elements(d -> 'spending') s $$,
   $$ values
-       (null, 'Il Bar', 1500::bigint),
-       (null, 'NEGOZIO', 4000::bigint),
-       (null, null, 18000::bigint),
-       ('30000000-0000-0000-0000-000000000002', null, 1100::bigint) $$,
-  'per categoria ed esercente: generiche e ignorati senza nome; fuori rifiutati, trasferimenti, entrate e mesi futuri'
+       (null, null, 'Il Bar', 1500::bigint),
+       (null, null, 'NEGOZIO', 4000::bigint),
+       (null, null, null, 18000::bigint),
+       ('20000000-0000-0000-0000-000000000001', 'Abbonamenti', null, 1100::bigint) $$,
+  'per secchio, riga ed esercente: da assegnare solo le uscite; fuori rifiutati, trasferimenti, entrate e mesi futuri'
 );
 select is(
-  (select count(*) from risultato, jsonb_array_elements(d -> 'spending') s where s ->> 'category_id' = '30000000-0000-0000-0000-000000000001'),
+  (select count(*) from risultato, jsonb_array_elements(d -> 'spending') s where s ->> 'line' = 'Stipendio'),
   0::bigint,
-  'una categoria di entrata non è una fetta'
+  'una riga di entrata non è una fetta'
 );
 
 -- Un altro utente non vede nulla.
 select set_config('request.jwt.claims', '{"sub": "00000000-0000-0000-0000-00000000000b", "role": "authenticated"}', true);
 select is(
-  (select array[d -> 'merchants', d -> 'recurring', d -> 'spending'] from (select public.chart_data('2026-09-01', '2026-12-01', '2026-11-15') as d) x),
-  array['[]'::jsonb, '[]'::jsonb, '[]'::jsonb],
+  (select array[d -> 'merchants', d -> 'spending'] from (select public.chart_data('2026-09-01', '2026-12-01', '2026-11-15') as d) x),
+  array['[]'::jsonb, '[]'::jsonb],
   'i dati di un altro utente restano invisibili'
 );
 reset role;
-
-select throws_ok(
-  $$ update public.categories set super_category = '  ' where id = '30000000-0000-0000-0000-000000000002' $$,
-  '23514', null,
-  'una super categoria non può essere vuota'
-);
 
 select is(has_function_privilege('anon', 'public.chart_data(date, date, date)', 'execute'), false, 'anon non può chiamare i dati dei grafici');
 select is(

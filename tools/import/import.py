@@ -122,7 +122,7 @@ def bbva(args):
 
     data = [v for n, v in rows if n > header_row and v.get(col["Importo"])]
     seen = collections.Counter()
-    out = []  # (id, conto, categoria, secchio, centesimi, data, data_valuta, esercente, nota, gruppo)
+    out = []  # (id, conto, centesimi, data, data_valuta, esercente, nota, gruppo)
     per_month = collections.defaultdict(lambda: [0, 0])
     accantonamenti = da_classificare = 0
     total = 0
@@ -142,24 +142,25 @@ def bbva(args):
         if causale == ACCANTONAMENTO:
             accantonamenti += 1
             group = stable_id(*key, "gruppo")
-            out.append((stable_id(*key, "principale"), "BBVA", "Risparmio", "Future me", cents,
+            # Il lato BBVA va sulla riga "Risparmio" del mese (private.import_statement).
+            out.append((stable_id(*key, "principale"), "BBVA", cents,
                         booking_date, value_date, causale, note, group))
-            out.append((stable_id(*key, "salvadanaio"), "Salvadanaio", None, None, -cents,
+            out.append((stable_id(*key, "salvadanaio"), "Salvadanaio", -cents,
                         booking_date, value_date, causale, note, group))
         else:
             da_classificare += 1
-            out.append((stable_id(*key), "BBVA", None, None, cents,
+            out.append((stable_id(*key), "BBVA", cents,
                         booking_date, value_date, causale, note, None))
 
     # Controlli indipendenti prima di scrivere qualsiasi cosa.
     assert len(data) == sum(m[0] for m in per_month.values())
     assert len({r[0] for r in out}) == len(out), "id duplicati"
-    assert sum(r[4] for r in out if r[1] == "BBVA") == total, "somma del conto principale diversa dall'estratto"
+    assert sum(r[2] for r in out if r[1] == "BBVA") == total, "somma del conto principale diversa dall'estratto"
 
     OUT.mkdir(exist_ok=True)
-    fields = ("id", "account", "category", "bucket", "amount", "booking_date", "value_date", "merchant", "note", "grp")
+    fields = ("id", "account", "amount", "booking_date", "value_date", "merchant", "note", "grp")
     payload = json.dumps(
-        [dict(zip(fields, (*r[:5], r[5].isoformat(), r[6].isoformat(), *r[7:]))) for r in out],
+        [dict(zip(fields, (*r[:3], r[3].isoformat(), r[4].isoformat(), *r[5:]))) for r in out],
         ensure_ascii=False,
     )
     # La sottoquery su auth.users dà errore se gli utenti non sono esattamente uno.

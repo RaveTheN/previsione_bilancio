@@ -1,8 +1,8 @@
--- Fase 2: previsione, catena dei residui, secchi, risparmio e trasferimenti.
+-- Previsione per righe, catena dei residui, secchi, risparmio e trasferimenti.
 -- Dati finti. "Oggi" è fissato con p_today, così i test non scadono.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(26);
+select plan(25);
 
 insert into auth.users (id, email) values
   ('00000000-0000-0000-0000-00000000000a', 'a@example.com'),
@@ -18,49 +18,43 @@ insert into public.buckets (id, user_id, name, sort_order, target_pct) values
   ('20000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-00000000000a', 'Future me', 1, 15),
   ('20000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-00000000000a', 'Fundamentals', 2, 50),
   ('20000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-00000000000a', 'Fun', 3, 35);
-insert into public.categories (id, user_id, name, kind, is_salary, sort_order) values
-  ('30000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-00000000000a', 'Stipendio', 'income', true, 1),
-  ('30000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-00000000000a', 'Extra', 'income', false, 2),
-  ('30000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-00000000000a', 'Risparmio', 'saving', false, 3),
-  ('30000000-0000-0000-0000-000000000004', '00000000-0000-0000-0000-00000000000a', 'Affitto', 'expense', false, 4),
-  ('30000000-0000-0000-0000-000000000005', '00000000-0000-0000-0000-00000000000a', 'Spesa', 'expense', false, 5);
-insert into public.settings (user_id, go_live_month, opening_residual_cents, savings_pct, savings_bucket_id) values
-  ('00000000-0000-0000-0000-00000000000a', '2026-11-01', 100000, 15, '20000000-0000-0000-0000-000000000001');
+insert into public.settings (user_id, go_live_month, opening_residual_cents, savings_bucket_id) values
+  ('00000000-0000-0000-0000-00000000000a', '2026-11-01', 100000, '20000000-0000-0000-0000-000000000001');
 
--- Previsione. Novembre è costruito come il gennaio 2024 del vecchio foglio:
--- stipendio, un'entrata extra, spese in due secchi e il risparmio predefinito (15%).
-insert into public.budget_lines (user_id, month, category_id, bucket_id, amount_cents)
-select '00000000-0000-0000-0000-00000000000a', m::date, ('30000000-0000-0000-0000-00000000000' || c)::uuid,
-  ('20000000-0000-0000-0000-00000000000' || b)::uuid, amt
+-- Righe del mese: nome, secchio (vuoto per le entrate), previsto.
+insert into public.budget_lines (user_id, month, name, bucket_id, amount_cents)
+select '00000000-0000-0000-0000-00000000000a', m::date, n, ('20000000-0000-0000-0000-00000000000' || b)::uuid, amt
 from (values
-  ('2026-11-01', '1', null, 200000), ('2026-11-01', '2', null, 10000),
-  ('2026-11-01', '4', '2', -50000), ('2026-11-01', '5', '2', -30000), ('2026-11-01', '5', '3', -20000),
-  ('2026-12-01', '1', null, 200000), ('2026-12-01', '4', '2', -50000),
-  -- gennaio: risparmio scritto a zero, quindi il predefinito non vale
-  ('2027-01-01', '1', null, 200000), ('2027-01-01', '4', '2', -50000), ('2027-01-01', '3', '1', 0),
-  ('2027-02-01', '1', null, 200000), ('2027-02-01', '4', '2', -50000), ('2027-02-01', '5', '2', -40000),
-  -- marzo senza previsione; aprile senza stipendio
-  ('2027-04-01', '4', '2', -50000),
+  ('2026-11-01', 'Stipendio', null, 200000), ('2026-11-01', 'Extra', null, 10000),
+  ('2026-11-01', 'Affitto', '2', -50000), ('2026-11-01', 'Spesa', '2', -30000), ('2026-11-01', 'Svago', '3', -20000),
+  ('2026-11-01', 'Risparmio', '1', -30000),
+  ('2026-12-01', 'Stipendio', null, 200000), ('2026-12-01', 'Affitto', '2', -50000), ('2026-12-01', 'Svago', '3', 0),
+  ('2027-01-01', 'Stipendio', null, 200000), ('2027-01-01', 'Affitto', '2', -50000), ('2027-01-01', 'Risparmio', '1', 0),
+  ('2027-02-01', 'Stipendio', null, 200000), ('2027-02-01', 'Affitto', '2', -50000), ('2027-02-01', 'Spesa', '2', -40000),
+  -- marzo senza righe; aprile senza stipendio
+  ('2027-04-01', 'Affitto', '2', -50000),
   -- ottobre è prima dell'avvio: mese storico
-  ('2026-10-01', '1', null, 200000)
-) as v (m, c, b, amt);
+  ('2026-10-01', 'Stipendio', null, 200000)
+) as v (m, n, b, amt);
 
-insert into public.transactions (id, user_id, account_id, category_id, bucket_id, amount_cents, booking_date, status)
+insert into public.transactions (id, user_id, account_id, line_id, amount_cents, booking_date, status)
 select coalesce(id::uuid, gen_random_uuid()), '00000000-0000-0000-0000-00000000000a', '10000000-0000-0000-0000-000000000001',
-  ('30000000-0000-0000-0000-00000000000' || c)::uuid, ('20000000-0000-0000-0000-00000000000' || b)::uuid, amt, d::date, st
+  (select b.id from public.budget_lines b
+    where b.user_id = '00000000-0000-0000-0000-00000000000a' and b.name = v.n and b.month = date_trunc('month', v.d::date)::date),
+  amt, d::date, st
 from (values
-  (null, '1', null, 200000, '2026-11-27', 'confirmed'),
-  (null, '2', null, 10000, '2026-11-10', 'confirmed'),
-  (null, '4', '2', -50000, '2026-11-02', 'confirmed'),
-  ('60000000-0000-0000-0000-000000000001', '5', '2', -33000, '2026-11-15', 'confirmed'),
-  (null, '5', '3', -15000, '2026-11-18', 'confirmed'),
-  (null, '5', '2', -9999, '2026-11-19', 'declined'),
-  (null, null, null, -1000, '2026-11-25', 'confirmed'),
-  (null, '1', null, 200000, '2026-12-27', 'confirmed'),
-  (null, '4', '2', -50000, '2026-12-02', 'confirmed'),
-  (null, '5', '3', -80000, '2026-12-20', 'confirmed'),
-  (null, '4', '2', -50000, '2027-01-02', 'confirmed')
-) as v (id, c, b, amt, d, st);
+  (null, 'Stipendio', 200000, '2026-11-27', 'confirmed'),
+  (null, 'Extra', 10000, '2026-11-10', 'confirmed'),
+  (null, 'Affitto', -50000, '2026-11-02', 'confirmed'),
+  ('60000000-0000-0000-0000-000000000001', 'Spesa', -33000, '2026-11-15', 'confirmed'),
+  (null, 'Svago', -15000, '2026-11-18', 'confirmed'),
+  (null, 'Spesa', -9999, '2026-11-19', 'declined'),
+  (null, null, -1000, '2026-11-25', 'confirmed'),
+  (null, 'Stipendio', 200000, '2026-12-27', 'confirmed'),
+  (null, 'Affitto', -50000, '2026-12-02', 'confirmed'),
+  (null, 'Svago', -80000, '2026-12-20', 'confirmed'),
+  (null, 'Affitto', -50000, '2027-01-02', 'confirmed')
+) as v (id, n, amt, d, st);
 
 -- Da qui come utente A.
 set local role authenticated;
@@ -82,23 +76,23 @@ select is(
   'il trasferimento crea due righe e ripeterlo non crea doppioni'
 );
 select results_eq(
-  $$ select account_id, category_id, bucket_id, amount_cents from public.transactions
-     where transfer_group_id = '50000000-0000-0000-0000-000000000001' order by amount_cents $$,
-  $$ values ('10000000-0000-0000-0000-000000000001'::uuid, '30000000-0000-0000-0000-000000000003'::uuid,
-             '20000000-0000-0000-0000-000000000001'::uuid, -25000::bigint),
-            ('10000000-0000-0000-0000-000000000003'::uuid, null, null, 25000::bigint) $$,
-  'accantonamento: il lato spendibile è Risparmio nel secchio delle impostazioni, il Salvadanaio no'
+  $$ select t.account_id, b.name, t.amount_cents from public.transactions t
+     left join public.budget_lines b on b.id = t.line_id
+     where t.transfer_group_id = '50000000-0000-0000-0000-000000000001' order by t.amount_cents $$,
+  $$ values ('10000000-0000-0000-0000-000000000001'::uuid, 'Risparmio', -25000::bigint),
+            ('10000000-0000-0000-0000-000000000003'::uuid, null, 25000::bigint) $$,
+  'accantonamento: il lato spendibile va sulla riga Risparmio del mese, il Salvadanaio no'
 );
 select is(
   (select count(*) from public.transactions
-    where transfer_group_id = '50000000-0000-0000-0000-000000000002' and category_id is null),
+    where transfer_group_id = '50000000-0000-0000-0000-000000000002' and line_id is null),
   2::bigint,
-  'trasferimento ordinario: nessuna categoria su entrambe le righe'
+  'trasferimento ordinario: nessuna riga su entrambi i lati'
 );
 select is(
   (select public.month_overview('2027-05-01', '2027-01-15') -> 'saving_actual'),
   '7000'::jsonb,
-  'prelievo dal Salvadanaio: risparmio negativo sul lato spendibile'
+  'prelievo dal Salvadanaio: la riga Risparmio si crea se manca, con il risparmio negativo'
 );
 select throws_ok(
   $$ select public.create_transfer(gen_random_uuid(), '10000000-0000-0000-0000-000000000001',
@@ -118,10 +112,12 @@ select is(
   (select jsonb_build_object(
      'in_f', o -> 'income_forecast', 'in_a', o -> 'income_actual',
      'out_f', o -> 'expense_forecast', 'out_a', o -> 'expense_actual',
-     'sav_f', o -> 'saving_forecast', 'sav_a', o -> 'saving_actual')
+     'sav_f', o -> 'saving_forecast', 'sav_a', o -> 'saving_actual',
+     'unassigned', o -> 'unassigned')
    from public.month_overview('2026-11-01', '2027-01-15') o),
-  '{"in_f": 210000, "in_a": 210000, "out_f": -100000, "out_a": -99000, "sav_f": -30000, "sav_a": -25000}'::jsonb,
-  'mese di prova: entrate, uscite e risparmio; esclusi rifiutati e trasferimenti ordinari, "Da assegnare" incluso'
+  '{"in_f": 210000, "in_a": 210000, "out_f": -100000, "out_a": -98000, "sav_f": -30000, "sav_a": -25000,
+    "unassigned": {"actual": -1000, "n": 1}}'::jsonb,
+  'mese di prova: entrate, uscite e risparmio; esclusi rifiutati e trasferimenti ordinari; "Da assegnare" a parte'
 );
 select is(
   (select jsonb_build_object(
@@ -129,21 +125,21 @@ select is(
      'end_f', o -> 'end_forecast', 'end_a', o -> 'end_actual')
    from public.month_overview('2026-11-01', '2027-01-15') o),
   '{"start_f": 100000, "start_a": 100000, "end_f": 180000, "end_a": 186000}'::jsonb,
-  'mese di prova: residuo iniziale di apertura e residuo finale previsto/effettivo'
+  'mese di prova: residuo iniziale di apertura e residuo finale previsto/effettivo, "Da assegnare" compreso'
 );
 select is(
   (select o -> 'buckets' from public.month_overview('2026-11-01', '2027-01-15') o),
-  '[{"bucket_id": "20000000-0000-0000-0000-000000000001", "target_pct": 15, "forecast_pct": 15, "actual_pct": 12.5},
-    {"bucket_id": "20000000-0000-0000-0000-000000000002", "target_pct": 50, "forecast_pct": 40, "actual_pct": 41.5},
-    {"bucket_id": "20000000-0000-0000-0000-000000000003", "target_pct": 35, "forecast_pct": 10, "actual_pct": 7.5}]'::jsonb,
-  'percentuali dei secchi sullo stipendio: obiettivo, prevista, reale'
+  '[{"bucket_id": "20000000-0000-0000-0000-000000000001", "target_pct": 15, "forecast_pct": 14.3, "actual_pct": 11.9},
+    {"bucket_id": "20000000-0000-0000-0000-000000000002", "target_pct": 50, "forecast_pct": 38.1, "actual_pct": 39.5},
+    {"bucket_id": "20000000-0000-0000-0000-000000000003", "target_pct": 35, "forecast_pct": 9.5, "actual_pct": 7.1}]'::jsonb,
+  'percentuali dei secchi sul totale delle entrate: obiettivo, prevista, reale'
 );
 select is(
-  (select l from public.month_overview('2026-11-01', '2027-01-15') o, jsonb_array_elements(o -> 'lines') l
-    where l ->> 'category_id' = '30000000-0000-0000-0000-000000000003'),
-  '{"category_id": "30000000-0000-0000-0000-000000000003", "bucket_id": "20000000-0000-0000-0000-000000000001",
-    "inflow": null, "forecast": -30000, "actual": -25000, "n": 1, "is_default": true}'::jsonb,
-  'risparmio predefinito al 15% dello stipendio previsto; l''accantonamento conta una volta'
+  (select l - 'id' from public.month_overview('2026-11-01', '2027-01-15') o, jsonb_array_elements(o -> 'lines') l
+    where l ->> 'name' = 'Risparmio'),
+  '{"name": "Risparmio", "bucket_id": "20000000-0000-0000-0000-000000000001", "sort_order": 0,
+    "forecast": -30000, "actual": -25000, "n": 1}'::jsonb,
+  'la riga Risparmio: previsto scritto, l''accantonamento conta una volta'
 );
 
 -- Catena dei residui.
@@ -160,7 +156,7 @@ select is(
      'fundamentals_real', o -> 'buckets' -> 1 -> 'actual_pct')
    from public.month_overview('2027-01-01', '2027-01-15') o),
   '{"sav_f": 0, "future_me": 0, "fundamentals_real": 25}'::jsonb,
-  'previsione a zero: vale zero (non il predefinito); senza stipendio reale la base è quello previsto'
+  'risparmio scritto a zero vale zero; senza entrate reali la base è quella prevista'
 );
 select is(
   (select array[(f -> 'start_forecast')::bigint, (m -> 'start_forecast')::bigint,
@@ -168,26 +164,26 @@ select is(
    from public.month_overview('2027-02-01', '2027-01-15') f,
         public.month_overview('2027-03-01', '2027-01-15') m,
         public.month_overview('2027-04-01', '2027-01-15') a),
-  array[406000, 486000, 486000, 436000]::bigint[],
-  'mesi futuri: la catena prosegue con i netti previsti, anche nei mesi senza previsione'
+  array[406000, 516000, 516000, 466000]::bigint[],
+  'mesi futuri: la catena prosegue con i netti previsti, anche nei mesi senza righe'
 );
 select is(
   (select o -> 'buckets' from public.month_overview('2027-04-01', '2027-01-15') o),
   '[{"bucket_id": "20000000-0000-0000-0000-000000000001", "target_pct": 15, "forecast_pct": null, "actual_pct": null},
     {"bucket_id": "20000000-0000-0000-0000-000000000002", "target_pct": 50, "forecast_pct": null, "actual_pct": null},
     {"bucket_id": "20000000-0000-0000-0000-000000000003", "target_pct": 35, "forecast_pct": null, "actual_pct": null}]'::jsonb,
-  'mese senza stipendio: percentuali assenti, nessuna divisione per zero'
+  'mese senza entrate: percentuali assenti, nessuna divisione per zero'
 );
 select is(
   (select public.month_overview('2027-01-01', '2026-11-10') -> 'start_forecast'),
-  '300000'::jsonb,
-  'con oggi a novembre, dicembre → gennaio passa per la previsione (100000 + 80000 + 120000)'
+  '330000'::jsonb,
+  'con oggi a novembre, dicembre → gennaio passa per la previsione (100000 + 80000 + 150000)'
 );
 select is(
   (select jsonb_build_object('start', o -> 'start_forecast', 'sav_f', o -> 'saving_forecast')
    from public.month_overview('2026-10-01', '2027-01-15') o),
   '{"start": null, "sav_f": 0}'::jsonb,
-  'prima del mese di avvio: niente residuo (catena storica) e niente risparmio predefinito'
+  'prima del mese di avvio: niente residuo (catena storica)'
 );
 
 -- Salvadanaio.
@@ -197,8 +193,8 @@ select is(
    from public.month_overview('2026-10-01', '2027-01-15') o,
         public.month_overview('2026-11-01', '2027-01-15') n,
         public.month_overview('2027-02-01', '2027-01-15') f),
-  array[100000, 125000, 130000, 155000]::bigint[],
-  'Salvadanaio: ricostruito dal saldo di riferimento; l''accantonamento lo aumenta; previsto con il risparmio previsto'
+  array[100000, 125000, 130000, 125000]::bigint[],
+  'Salvadanaio: ricostruito dal saldo di riferimento; l''accantonamento lo aumenta; previsto con le righe Risparmio'
 );
 
 -- Modifiche: una spesa passata e una previsione futura aggiornano i residui successivi.
@@ -210,18 +206,17 @@ select is(
   array[246000, 396000]::bigint[],
   'una spesa passata modificata aggiorna i residui dei mesi successivi'
 );
-update public.budget_lines set amount_cents = -60000
-where month = '2027-02-01' and category_id = '30000000-0000-0000-0000-000000000005';
+update public.budget_lines set amount_cents = -60000 where month = '2027-02-01' and name = 'Spesa';
 select is(
   (select public.month_overview('2027-03-01', '2027-01-15') -> 'start_forecast'),
-  '456000'::jsonb,
+  '486000'::jsonb,
   'una previsione modificata aggiorna i residui previsti dei mesi futuri'
 );
 select throws_ok(
-  $$ insert into public.budget_lines (month, category_id, bucket_id, amount_cents)
-     values ('2027-02-01', '30000000-0000-0000-0000-000000000005', '20000000-0000-0000-0000-000000000002', -1) $$,
+  $$ insert into public.budget_lines (month, name, bucket_id, amount_cents)
+     values ('2027-02-01', 'Spesa', '20000000-0000-0000-0000-000000000003', -1) $$,
   '23505', null,
-  'una sola previsione per mese, categoria e secchio'
+  'una sola riga con lo stesso nome nel mese'
 );
 
 -- Griglia annuale: dodici mesi, ognuno uguale alla vista mese.
@@ -232,26 +227,13 @@ select is(
   'la griglia ha 12 mesi e ogni mese coincide con la vista mese'
 );
 
--- Risparmio come importo fisso: vale in ogni mese pianificato dall'avvio, anche senza stipendio.
-update public.settings set savings_amount_cents = 25000;
-select is(
-  (select array[(n -> 'saving_forecast')::bigint, (a -> 'saving_forecast')::bigint,
-                (m -> 'saving_forecast')::bigint, (o -> 'saving_forecast')::bigint]
-   from public.month_overview('2026-11-01', '2027-01-15') n,
-        public.month_overview('2027-04-01', '2027-01-15') a,
-        public.month_overview('2027-03-01', '2027-01-15') m,
-        public.month_overview('2026-10-01', '2027-01-15') o),
-  array[-25000, -25000, 0, 0]::bigint[],
-  'importo fisso: nei mesi pianificati (non in quelli vuoti né prima dell''avvio)'
-);
-
 -- Utente B: non vede e non usa i dati di A.
 select set_config('request.jwt.claims', '{"sub":"00000000-0000-0000-0000-00000000000b","role":"authenticated"}', true);
 
 select is(
   (select count(*) from public.budget_lines) + (select count(*) from public.settings),
   0::bigint,
-  'B non vede previsioni e impostazioni di A'
+  'B non vede righe e impostazioni di A'
 );
 select is(
   (select jsonb_build_object('lines', o -> 'lines', 'start', o -> 'start_forecast')
@@ -260,10 +242,10 @@ select is(
   'la vista del mese di B è vuota'
 );
 select throws_ok(
-  $$ insert into public.budget_lines (month, category_id, amount_cents)
-     values ('2026-11-01', '30000000-0000-0000-0000-000000000001', 100) $$,
+  $$ insert into public.budget_lines (month, name, bucket_id, amount_cents)
+     values ('2026-11-01', 'X', '20000000-0000-0000-0000-000000000001', 100) $$,
   '23503', null,
-  'B non può prevedere su una categoria di A (FK composta)'
+  'B non può usare un secchio di A (FK composta)'
 );
 select throws_ok(
   $$ select public.create_transfer(gen_random_uuid(), '10000000-0000-0000-0000-000000000001',

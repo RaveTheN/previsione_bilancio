@@ -1,7 +1,7 @@
--- Fase 9: saldo attuale, interessi, debiti, wishlist, spese condivise. Dati finti.
+-- Fase 9: saldo attuale, rimborsi, debiti, wishlist, spese condivise. Dati finti.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(29);
+select plan(22);
 
 insert into auth.users (id, email) values
   ('00000000-0000-0000-0000-00000000000a', 'a@example.com'),
@@ -14,17 +14,12 @@ insert into public.accounts (id, user_id, name, role, balance_cents, balance_dat
   ('10000000-0000-0000-0000-000000000005', '00000000-0000-0000-0000-00000000000b', 'Banca di B', 'spendable', 5000, '2026-10-01', false);
 insert into public.buckets (id, user_id, name) values
   ('20000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-00000000000a', 'Fun');
-insert into public.categories (id, user_id, name, kind, is_salary, is_interest, sort_order) values
-  ('30000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-00000000000a', 'Stipendio', 'income', true, false, 1),
-  ('30000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-00000000000a', 'Interessi', 'income', false, true, 2),
-  ('30000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-00000000000a', 'Spesa', 'expense', false, false, 3);
-insert into public.settings (user_id, go_live_month, opening_residual_cents, savings_pct) values
-  ('00000000-0000-0000-0000-00000000000a', '2026-09-01', 0, 0);
-insert into public.budget_lines (user_id, month, category_id, bucket_id, amount_cents) values
-  ('00000000-0000-0000-0000-00000000000a', '2026-11-01', '30000000-0000-0000-0000-000000000001', null, 200000),
-  ('00000000-0000-0000-0000-00000000000a', '2026-12-01', '30000000-0000-0000-0000-000000000001', null, 200000),
-  -- Una riga scritta vince sulla stima.
-  ('00000000-0000-0000-0000-00000000000a', '2026-12-01', '30000000-0000-0000-0000-000000000002', null, 1234);
+insert into public.settings (user_id, go_live_month, opening_residual_cents) values
+  ('00000000-0000-0000-0000-00000000000a', '2026-09-01', 0);
+insert into public.budget_lines (id, user_id, month, name, bucket_id, amount_cents) values
+  ('30000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-00000000000a', '2026-11-01', 'Stipendio', null, 200000),
+  ('30000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-00000000000a', '2026-12-01', 'Stipendio', null, 200000),
+  ('30000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-00000000000a', '2026-08-01', 'Spesa', '20000000-0000-0000-0000-000000000001', 0);
 insert into public.transactions (id, user_id, account_id, amount_cents, booking_date, status) values
   -- Il giorno del saldo è già compreso nel saldo.
   ('60000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-00000000000a', '10000000-0000-0000-0000-000000000001', -5000, '2026-10-01', 'confirmed'),
@@ -60,55 +55,15 @@ select bag_eq(
   'saldo attuale: saldo reale più i movimenti dopo la sua data; fuori rifiutati, conti archiviati e conti senza saldo'
 );
 
--- Interessi
-create temp table interessi on commit drop as
-select m.mese, l ->> 'forecast' as forecast, l ->> 'is_default' as predefinita
-from (values ('2026-11-01'::date), ('2026-12-01'::date), ('2027-01-01'::date)) as m (mese)
-cross join lateral jsonb_array_elements(public.month_overview(m.mese, '2026-11-15') -> 'lines') l
-where l ->> 'category_id' = '30000000-0000-0000-0000-000000000002';
-select is((select count(*) from interessi where mese = '2026-11-01' and forecast is not null), 0::bigint, 'senza un tasso non c''è nessuna stima');
-drop table interessi;
-
-update public.settings set interest_rate_pct = 3.5;
-create temp table interessi on commit drop as
-select m.mese, l ->> 'forecast' as forecast, l ->> 'is_default' as predefinita
-from (values ('2026-11-01'::date), ('2026-12-01'::date), ('2027-01-01'::date)) as m (mese)
-cross join lateral jsonb_array_elements(public.month_overview(m.mese, '2026-11-15') -> 'lines') l
-where l ->> 'category_id' = '30000000-0000-0000-0000-000000000002';
-
-select results_eq(
-  $$ select forecast, predefinita from interessi where mese = '2026-11-01' $$,
-  $$ values ('637', 'true') $$,
-  'stima: 2950,00 € × 3,5% / 12, meno il 26%, come riga predefinita'
-);
-select results_eq(
-  $$ select forecast, predefinita from interessi where mese = '2026-12-01' $$,
-  $$ values ('1234', 'false') $$,
-  'una riga scritta vince sulla stima'
-);
-select is((select count(*) from interessi where mese = '2027-01-01'), 0::bigint, 'un mese non pianificato non ha la stima');
-select is(
-  (public.month_overview('2026-11-01', '2026-11-15') ->> 'income_forecast')::bigint,
-  200637::bigint,
-  'la stima entra nelle entrate previste del mese'
-);
-select is(
-  (public.month_overview('2026-12-01', '2026-11-15') ->> 'start_forecast')::bigint
-    - (public.month_overview('2026-11-01', '2026-11-15') ->> 'start_forecast')::bigint,
-  200637::bigint,
-  'e nel residuo previsto del mese dopo'
-);
-update public.settings set interest_rate_pct = null;
-
--- Un rimborso su una categoria di spesa si sottrae dalle uscite, senza gonfiare le entrate.
-insert into public.transactions (account_id, category_id, bucket_id, amount_cents, booking_date) values
-  ('10000000-0000-0000-0000-000000000004', '30000000-0000-0000-0000-000000000003', '20000000-0000-0000-0000-000000000001', -11631, '2026-08-05'),
-  ('10000000-0000-0000-0000-000000000004', '30000000-0000-0000-0000-000000000003', '20000000-0000-0000-0000-000000000001', 3877, '2026-08-07');
+-- Un rimborso su una riga di spesa si sottrae dalle uscite, senza gonfiare le entrate.
+insert into public.transactions (account_id, line_id, amount_cents, booking_date) values
+  ('10000000-0000-0000-0000-000000000004', '30000000-0000-0000-0000-000000000003', -11631, '2026-08-05'),
+  ('10000000-0000-0000-0000-000000000004', '30000000-0000-0000-0000-000000000003', 3877, '2026-08-07');
 select results_eq(
   $$ select (public.month_overview('2026-08-01', '2026-11-15') ->> 'expense_actual')::bigint,
             (public.month_overview('2026-08-01', '2026-11-15') ->> 'income_actual')::bigint $$,
   $$ values (-7754::bigint, 0::bigint) $$,
-  'un rimborso sulla categoria di spesa riduce le uscite e non conta come entrata'
+  'un rimborso sulla riga di spesa riduce le uscite e non conta come entrata'
 );
 
 -- Debiti
@@ -136,13 +91,13 @@ select results_eq(
   $$ select (public.month_overview('2026-11-01', '2026-11-15') ->> 'debt_cents')::bigint,
             (public.month_overview('2026-11-01', '2026-11-15') ->> 'debt_pct')::numeric $$,
   $$ values (10000::bigint, 5.0::numeric) $$,
-  'peso sul mese: le rate che cadono nel mese, sullo stipendio; il Telefono è finito a ottobre'
+  'peso sul mese: le rate che cadono nel mese, sulle entrate; il Telefono è finito a ottobre'
 );
 select results_eq(
   $$ select (public.month_overview('2026-10-01', '2026-11-15') ->> 'debt_cents')::bigint,
             public.month_overview('2026-10-01', '2026-11-15') ->> 'debt_pct' $$,
   $$ values (15000::bigint, null::text) $$,
-  'l''ultima rata conta; un mese senza stipendio non ha percentuale'
+  'l''ultima rata conta; un mese senza entrate non ha percentuale'
 );
 select is((public.month_overview('2027-04-01', '2026-11-15') ->> 'debt_cents')::bigint, 10000::bigint, 'la Moto continua l''anno dopo, Futuro è finito a marzo');
 select throws_ok(
@@ -202,9 +157,6 @@ select throws_ok(
   '23514', null,
   'una voce deve avere un importo'
 );
-
--- Impostazioni
-select throws_ok($$ update public.settings set interest_rate_pct = 101 $$, '23514', null, 'il tasso sta tra 0 e 100');
 
 -- Un altro utente non vede nulla.
 select set_config('request.jwt.claims', '{"sub": "00000000-0000-0000-0000-00000000000b", "role": "authenticated"}', true);

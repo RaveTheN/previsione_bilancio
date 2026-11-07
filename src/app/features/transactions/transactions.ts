@@ -9,8 +9,8 @@ import { Sync } from '../../core/sync';
 import { MonthHeader, SwipeMonth } from '../../shared/month-header';
 import { QuickAddLauncher } from '../quick-add/quick-add';
 
-/** Titolo di un movimento nelle liste. */
-export function movementTitle(t: Transaction, ledger: Ledger): string {
+/** Titolo di un movimento nelle liste; lineName serve per i movimenti di un mese diverso da quello caricato. */
+export function movementTitle(t: Transaction, ledger: Ledger, lineName?: string): string {
   // Per i bonifici la parte che li distingue è la nota (causale e destinatario); per gli
   // addebiti PayPal la nota è solo un numero, quindi resta il nome grezzo.
   if (/^\s*bonifico\b/i.test(t.merchant_raw ?? '') && t.note) return t.note;
@@ -18,7 +18,8 @@ export function movementTitle(t: Transaction, ledger: Ledger): string {
     ledger.merchantById().get(t.merchant_id ?? '')?.name ??
     t.merchant_raw ??
     t.note ??
-    ledger.categoryById().get(t.category_id ?? '')?.name ??
+    lineName ??
+    ledger.lineById().get(t.line_id ?? '')?.name ??
     'Movimento'
   );
 }
@@ -201,13 +202,11 @@ export class Transactions {
   });
 
   protected isUnassigned(t: Transaction): boolean {
-    if (t.transfer_group_id) return false;
-    const cat = t.category_id ? this.ledger.categoryById().get(t.category_id) : undefined;
-    return !cat || (cat.kind !== 'income' && !t.bucket_id);
+    return !t.transfer_group_id && !t.line_id;
   }
 
   protected transferTitle(t: Transaction): string {
-    if (!t.category_id) return 'Trasferimento';
+    if (!t.line_id) return 'Trasferimento';
     return t.amount_cents < 0 ? 'Accantonamento' : 'Prelievo dalla riserva';
   }
 
@@ -216,12 +215,12 @@ export class Transactions {
   }
 
   protected subtitle(t: Transaction): string {
-    const cat = this.ledger.categoryById().get(t.category_id ?? '');
-    const bucket = this.ledger.bucketById().get(t.bucket_id ?? '');
+    const line = this.ledger.lineById().get(t.line_id ?? '');
+    const bucket = this.ledger.bucketById().get(line?.bucket_id ?? '');
     const tags = (t.transaction_tags ?? []).map((x) => this.ledger.tagById().get(x.tag_id)?.name).filter(Boolean);
     const parts = [
-      this.isUnassigned(t) ? (cat ? `${cat.name} · secchio da assegnare` : 'Da assegnare') : cat?.name,
-      bucket?.name,
+      this.isUnassigned(t) ? 'Da assegnare' : line?.name,
+      line && !line.bucket_id ? 'Entrate' : bucket?.name,
       ...tags,
       t.review_reason ? 'da controllare' : null,
       this.pendingIds().has(t.id) ? 'in attesa di invio' : null,

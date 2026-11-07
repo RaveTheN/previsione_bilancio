@@ -1,29 +1,26 @@
-import { Bucket, Category, MonthLine } from '../../core/supabase';
-import { bucketChart, categoryChart, ChartData, ChartMonth, merchantChart, periodOptions, periodRange, recurringChart, savingsChart, spendingTree } from './chart-data';
+import { Bucket, MonthLine } from '../../core/supabase';
+import { bucketChart, ChartMonth, lineChart, merchantChart, periodOptions, periodRange, savingsChart, spendingTree } from './chart-data';
 
-const cat = (id: string, name: string, kind: string) => ({ id, name, kind }) as Category;
-const categories = new Map(
-  [cat('stip', 'Stipendio', 'income'), cat('ris', 'Risparmio', 'saving'), cat('spesa', 'Spesa', 'expense'), cat('casa', 'Casa', 'expense')].map((c) => [c.id, c]),
-);
 const buckets = [
   { id: 'fm', name: 'Future me', target_pct: 15 },
   { id: 'fun', name: 'Fun', target_pct: 35 },
 ] as Bucket[];
 
-const line = (category_id: string | null, forecast: number | null, actual: number, inflow: boolean | null = null): MonthLine => ({
-  category_id,
-  bucket_id: null,
-  inflow,
+const line = (name: string, bucket_id: string | null, forecast: number, actual: number): MonthLine => ({
+  id: name,
+  name,
+  bucket_id,
+  sort_order: 0,
   forecast,
   actual,
   n: 1,
-  is_default: false,
 });
 
 function month(key: string, lines: MonthLine[], extra: Partial<ChartMonth> = {}): ChartMonth {
   return {
     month: key,
     lines,
+    unassigned: { actual: 0, n: 0 },
     income_forecast: 0,
     income_actual: 0,
     expense_forecast: 0,
@@ -85,41 +82,38 @@ describe('risparmio accumulato', () => {
   });
 });
 
-describe('previsto ed effettivo per categoria', () => {
+describe('previsto ed effettivo per riga', () => {
   const months = [
-    month('2026-09-01', [line('stip', 200000, 210000), line('spesa', -30000, -40000), line('casa', -50000, -50000), line(null, null, -700, false), line(null, null, 900, true), line('ris', -5000, -5000)]),
-    month('2026-10-01', [line('spesa', -30000, -20000), line('casa', null, -1000)]),
+    month('2026-09-01', [line('Stipendio', null, 200000, 210000), line('Spesa', 'fun', -30000, -40000), line('Casa', 'fm', -50000, -50000)]),
+    month('2026-10-01', [line('Spesa', 'fun', -30000, -20000), line('Casa', 'fm', 0, -1000)]),
   ];
 
-  it('le uscite sommano come expense_actual e expense_forecast: dentro anche "Da assegnare", fuori risparmio ed entrate', () => {
-    const spec = categoryChart(months, categories, 'expense');
+  it('le uscite sono le righe dei secchi, lo stesso nome sommato sui mesi', () => {
+    const spec = lineChart(months, 'expense');
     const row = (name: string, s: number) => spec.series[s].values[spec.labels.indexOf(name)];
     expect(row('Spesa', 0)).toBe(60000);
     expect(row('Spesa', 1)).toBe(60000);
-    expect(row('Da assegnare', 1)).toBe(700);
-    expect(spec.labels).not.toContain('Risparmio');
     expect(spec.labels).not.toContain('Stipendio');
-    expect(spec.series[1].values.reduce((a, b) => (a ?? 0) + (b ?? 0), 0)).toBe(111700);
+    expect(spec.series[1].values.reduce((a, b) => (a ?? 0) + (b ?? 0), 0)).toBe(111000);
   });
 
-  it('le entrate hanno il loro grafico, comprese quelle da assegnare', () => {
-    const spec = categoryChart(months, categories, 'income');
-    expect(spec.labels).toEqual(['Stipendio', 'Da assegnare']);
-    expect(spec.series[1].values).toEqual([210000, 900]);
+  it('le entrate (righe senza secchio) hanno il loro grafico', () => {
+    const spec = lineChart(months, 'income');
+    expect(spec.labels).toEqual(['Stipendio']);
+    expect(spec.series[1].values).toEqual([210000]);
   });
 
   it('ordina per scostamento e somma il resto in "Altre", senza perdere il totale', () => {
-    const many = new Map([...Array(5).keys()].map((i) => [`c${i}`, cat(`c${i}`, `Cat ${i}`, 'expense')]));
-    const lines = [...Array(5).keys()].map((i) => line(`c${i}`, 0, -(i + 1) * 100));
-    const spec = categoryChart([month('2026-09-01', lines)], many, 'expense', 2);
-    expect(spec.labels).toEqual(['Cat 4', 'Cat 3', 'Altre (3)']);
+    const lines = [...Array(5).keys()].map((i) => line(`Riga ${i}`, 'fun', 0, -(i + 1) * 100));
+    const spec = lineChart([month('2026-09-01', lines)], 'expense', 2);
+    expect(spec.labels).toEqual(['Riga 4', 'Riga 3', 'Altre (3)']);
     expect(spec.series[1].values).toEqual([500, 400, 600]);
     expect(spec.summary).toContain('Effettivo 15,00');
-    expect(spec.summary).toContain('Cat 4');
+    expect(spec.summary).toContain('Riga 4');
   });
 
   it('senza movimenti né previsioni non disegna nulla', () => {
-    expect(categoryChart([], categories, 'expense').labels).toEqual([]);
+    expect(lineChart([], 'expense').labels).toEqual([]);
   });
 });
 
@@ -136,7 +130,7 @@ describe('ripartizione nei secchi', () => {
       [30.5, null],
     ]);
     expect(spec.ticks).toEqual([0, 15, 50]);
-    // L'ultimo mese con lo stipendio, non l'ultimo del periodo.
+    // L'ultimo mese con le entrate, non l'ultimo del periodo.
     expect(spec.summary).toContain('Settembre 2026: Future me 10%, Fun 30,5%');
   });
 
@@ -146,13 +140,13 @@ describe('ripartizione nei secchi', () => {
     expect(spec.summary).toContain('Settembre 2026: Future me 10%, Fun 30%');
   });
 
-  it('senza stipendio lo dice, invece di dividere per zero', () => {
+  it('senza entrate lo dice, invece di dividere per zero', () => {
     const spec = bucketChart([month('2026-10-01', [], { buckets: pct(null, null) })], buckets);
     expect(spec.labels).toEqual([]);
-    expect(spec.summary).toContain('Nessuno stipendio');
+    expect(spec.summary).toContain('Nessuna entrata');
   });
 
-  it('un periodo tutto futuro non parla di stipendio', () => {
+  it('un periodo tutto futuro non parla di entrate', () => {
     expect(bucketChart([], buckets).summary).toBe('Nessun dato nel periodo.');
   });
 });
@@ -165,59 +159,48 @@ it('top esercenti: una sola serie, senza legenda', () => {
 });
 
 describe('torta delle uscite', () => {
-  const expense = (id: string, name: string, sort_order: number, super_category: string | null) => ({ id, name, kind: 'expense', sort_order, super_category }) as Category;
-  const cats = new Map(
-    [
-      expense('aff', 'Affitto', 1, 'Casa'),
-      expense('ute', 'Utenze', 2, 'Casa'),
-      expense('car', 'Carburante', 3, 'Spostamenti'),
-      expense('mus', 'Musica', 4, null),
-      cat('stip', 'Stipendio', 'income'),
-    ].map((c) => [c.id, c]),
-  );
-  const row = (category_id: string | null, merchant: string | null, cents: number) => ({ category_id, merchant, cents });
+  const pieBuckets = [
+    { id: 'fm', name: 'Future me' },
+    { id: 'fund', name: 'Fundamentals' },
+    { id: 'fun', name: 'Fun' },
+  ] as Bucket[];
+  const row = (bucket_id: string | null, line: string | null, merchant: string | null, cents: number) => ({ bucket_id, line, merchant, cents });
   const rows = [
-    row('aff', null, 45000),
-    row('ute', 'LUCE SPA', 3000),
-    row('ute', 'ACQUA SPA', 1000),
-    row('car', 'DISTRIBUTORE', 5000),
-    row('car', null, 2000),
-    row('mus', 'NEGOZIO DISCHI', 8000),
-    row(null, 'SCONOSCIUTO', 700),
-    row(null, null, 300),
+    row('fund', 'Affitto', null, 45000),
+    row('fund', 'Luce', 'LUCE SPA', 3000),
+    row('fund', 'Luce', 'ACQUA SPA', 1000),
+    row('fun', 'Benzina', 'DISTRIBUTORE', 5000),
+    row('fun', 'Benzina', null, 2000),
+    row(null, null, 'SCONOSCIUTO', 700),
+    row(null, null, null, 300),
   ];
-  const tree = spendingTree(rows, cats);
+  const tree = spendingTree(rows, pieBuckets);
   const child = (key: string) => tree.children.find((n) => n.key === key)!;
 
   it('il totale è quello delle righe, e i livelli lo conservano', () => {
-    expect(tree.cents).toBe(65000);
-    expect(tree.children.reduce((s, n) => s + n.cents, 0)).toBe(65000);
+    expect(tree.cents).toBe(57000);
+    expect(tree.children.reduce((s, n) => s + n.cents, 0)).toBe(57000);
   });
 
-  it('in cima le super categorie, nell\'ordine delle categorie; senza super categoria vale "Altro"; poi "Da assegnare"', () => {
-    expect(tree.children.map((n) => n.label)).toEqual(['Casa', 'Spostamenti', 'Altro', 'Da assegnare']);
-    expect(tree.children.map((n) => n.slot)).toEqual([1, 2, 3, 0]);
+  it('in cima i secchi, nel loro ordine e con il loro colore; poi "Da assegnare"', () => {
+    expect(tree.children.map((n) => n.label)).toEqual(['Fundamentals', 'Fun', 'Da assegnare']);
+    expect(tree.children.map((n) => n.slot)).toEqual([2, 3, 0]);
   });
 
-  it('una super categoria si apre nelle categorie, una categoria negli esercenti', () => {
-    expect(child('Casa').children.map((n) => [n.label, n.cents])).toEqual([
+  it('un secchio si apre nelle righe, una riga negli esercenti', () => {
+    expect(child('fund').children.map((n) => [n.label, n.cents])).toEqual([
       ['Affitto', 45000],
-      ['Utenze', 4000],
+      ['Luce', 4000],
     ]);
-    expect(child('Casa').children[1].children.map((n) => n.label)).toEqual(['LUCE SPA', 'ACQUA SPA']);
+    expect(child('fund').children[1].children.map((n) => n.label)).toEqual(['LUCE SPA', 'ACQUA SPA']);
   });
 
-  it('una categoria con soli movimenti senza esercente non si apre', () => {
-    expect(child('Casa').children[0].children).toEqual([]);
+  it('una riga con soli movimenti senza esercente non si apre', () => {
+    expect(child('fund').children[0].children).toEqual([]);
   });
 
-  it('i movimenti senza esercente restano come fetta accanto agli altri', () => {
-    expect(child('Spostamenti').children.map((n) => n.label)).toEqual(['DISTRIBUTORE', 'Senza esercente']);
-  });
-
-  it('con una sola categoria apribile si passa direttamente agli esercenti', () => {
-    // Spostamenti ha solo Carburante, Altro solo Musica.
-    expect(child('Altro').children.map((n) => n.label)).toEqual(['NEGOZIO DISCHI']);
+  it('con una sola riga apribile si passa direttamente agli esercenti, compresi quelli senza nome', () => {
+    expect(child('fun').children.map((n) => n.label)).toEqual(['DISTRIBUTORE', 'Senza esercente']);
   });
 
   it('"Da assegnare" si apre negli esercenti', () => {
@@ -225,54 +208,20 @@ describe('torta delle uscite', () => {
   });
 
   it('oltre sei fette, la sesta raccoglie il resto e si apre a sua volta: nessun euro si perde', () => {
-    const many = [...Array(14).keys()].map((i) => row('ute', `E${i}`, 1000 - i));
-    const utenze = spendingTree(many, cats).children[0];
-    expect(utenze.children).toHaveLength(6);
-    const others = utenze.children[5];
+    const many = [...Array(14).keys()].map((i) => row('fund', 'Luce', `E${i}`, 1000 - i));
+    const luce = spendingTree(many, pieBuckets).children[0];
+    expect(luce.children).toHaveLength(6);
+    const others = luce.children[5];
     expect(others.key).toBe('altri');
     expect(others.slot).toBe(0);
     expect(others.label).toBe('Altri (9)');
     expect(others.children).toHaveLength(6);
     expect(others.children[5].label).toBe('Altri (4)');
-    expect(utenze.children.reduce((s, n) => s + n.cents, 0)).toBe(utenze.cents);
+    expect(luce.children.reduce((s, n) => s + n.cents, 0)).toBe(luce.cents);
     expect(others.children[0].slot).toBe(1);
   });
 
-  it('il colore di una super categoria non cambia se in un periodo un\'altra manca', () => {
-    const noHouse = spendingTree([row('car', 'DISTRIBUTORE', 5000)], cats);
-    expect(noHouse.children.map((n) => [n.label, n.slot])).toEqual([['Spostamenti', 2]]);
-  });
-
   it('un periodo senza uscite è vuoto', () => {
-    expect(spendingTree([], cats).children).toEqual([]);
-  });
-});
-
-describe('ricorrenti', () => {
-  const rule = (name: string, yearly: number, active: boolean, months: Record<string, number>): ChartData['recurring'][number] => ({ name, yearly, active, months });
-  const months = [month('2026-10-01', []), month('2026-11-01', [])];
-
-  it('una serie per ricorrente; il totale annuo conta solo quelle attive', () => {
-    const spec = recurringChart([rule('A', 12000, true, { '2026-10-01': 1000, '2026-11-01': 1100 }), rule('Finita', 50000, false, { '2026-10-01': 500 })], months);
-    expect(spec.series[0]).toEqual({ label: 'A', slot: 1, values: [1000, 1100] });
-    expect(spec.summary).toContain('120,00');
-  });
-
-  it('i colori seguono la ricorrente anche se un\'altra sparisce dal periodo', () => {
-    const spec = recurringChart([rule('Senza mesi', 90000, true, {}), rule('B', 12000, true, { '2026-11-01': 1000 })], months);
-    expect(spec.series).toEqual([{ label: 'B', slot: 2, values: [0, 1000] }]);
-  });
-
-  it('oltre le sette più care, una sola serie "Altre" grigia', () => {
-    const rules = [...Array(9).keys()].map((i) => rule(`R${i}`, 900 - i, true, { '2026-10-01': 100 }));
-    const spec = recurringChart(rules, months);
-    expect(spec.series).toHaveLength(8);
-    expect(spec.series[7]).toEqual({ label: 'Altre', slot: 0, values: [200, 0] });
-  });
-
-  it('senza scadenze nel periodo non disegna, ma il totale annuo resta', () => {
-    const spec = recurringChart([rule('A', 12000, true, {})], months);
-    expect(spec.labels).toEqual([]);
-    expect(spec.summary).toContain('120,00');
+    expect(spendingTree([], pieBuckets).children).toEqual([]);
   });
 });

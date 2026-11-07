@@ -1,7 +1,7 @@
--- Fase 3b: Rubrica e assegnazione per esercente. Nomi finti, formati come quelli reali.
+-- Rubrica e assegnazione per esercente. Nomi finti, formati come quelli reali.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(21);
+select plan(22);
 
 insert into auth.users (id, email) values
   ('00000000-0000-0000-0000-00000000000a', 'a@example.com'),
@@ -11,9 +11,12 @@ insert into public.accounts (id, user_id, name) values
 insert into public.buckets (id, user_id, name) values
   ('20000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-00000000000a', 'Fundamentals'),
   ('20000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-00000000000a', 'Fun');
-insert into public.categories (id, user_id, name, kind) values
-  ('30000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-00000000000a', 'Spesa', 'expense'),
-  ('30000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-00000000000a', 'Uscite', 'expense');
+-- Le stesse righe a settembre e ottobre: la regola sceglie la riga per nome, nel mese del movimento.
+insert into public.budget_lines (id, user_id, month, name, bucket_id, amount_cents) values
+  ('30000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-00000000000a', '2026-09-01', 'Spesa', '20000000-0000-0000-0000-000000000001', 0),
+  ('30000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-00000000000a', '2026-09-01', 'Uscite', '20000000-0000-0000-0000-000000000002', 0),
+  ('30000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-00000000000a', '2026-10-01', 'Spesa', '20000000-0000-0000-0000-000000000001', 0),
+  ('30000000-0000-0000-0000-000000000004', '00000000-0000-0000-0000-00000000000a', '2026-10-01', 'Uscite', '20000000-0000-0000-0000-000000000002', 0);
 insert into public.cards (user_id, account_id, last4) values
   ('00000000-0000-0000-0000-00000000000a', '10000000-0000-0000-0000-000000000001', '1234');
 insert into public.api_tokens (user_id, name, token_hash) values
@@ -21,24 +24,24 @@ insert into public.api_tokens (user_id, name, token_hash) values
 insert into public.parse_rules (user_id, app, match_regex, action, amount_regex, merchant_regex, card_regex) values
   ('00000000-0000-0000-0000-00000000000a', 'BBVA', 'Pagamento accettato', 'expense',
    '([0-9][0-9.,]*)\s*EUR', 'presso\s+(.+?)\s+effettuato con', 'carta\s+\*+(\d{4})');
--- Movimenti importati dall'estratto, ancora da assegnare tranne il terzo.
-insert into public.transactions (id, user_id, account_id, category_id, bucket_id, amount_cents, booking_date, merchant_raw, source) values
+-- Movimenti importati dall'estratto, ancora da assegnare tranne il terzo e il settimo.
+insert into public.transactions (id, user_id, account_id, line_id, amount_cents, booking_date, merchant_raw, source) values
   ('60000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-00000000000a', '10000000-0000-0000-0000-000000000001',
-   null, null, -700, '2026-10-01', 'BAR ESEMPIO MUSIC B', 'import'),
+   null, -700, '2026-10-01', 'BAR ESEMPIO MUSIC B', 'import'),
   ('60000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-00000000000a', '10000000-0000-0000-0000-000000000001',
-   null, null, -500, '2026-09-12', 'BAR ESEMPIO MUSIC B PALERMO IT', 'import'),
+   null, -500, '2026-09-12', 'BAR ESEMPIO MUSIC B PALERMO IT', 'import'),
   ('60000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-00000000000a', '10000000-0000-0000-0000-000000000001',
-   '30000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000001', -300, '2026-09-20', 'BAR ESEMPIO MUSIC B', 'import'),
+   '30000000-0000-0000-0000-000000000001', -300, '2026-09-20', 'BAR ESEMPIO MUSIC B', 'import'),
   ('60000000-0000-0000-0000-000000000004', '00000000-0000-0000-0000-00000000000a', '10000000-0000-0000-0000-000000000001',
-   null, null, -150, '2026-10-02', 'SumUp  *Negozio esempio di', 'import'),
+   null, -150, '2026-10-02', 'SumUp  *Negozio esempio di', 'import'),
   ('60000000-0000-0000-0000-000000000005', '00000000-0000-0000-0000-00000000000a', '10000000-0000-0000-0000-000000000001',
-   null, null, -250, '2026-10-03', 'SUMUP *NEGOZIO ESEMPIO 2', 'import'),
+   null, -250, '2026-10-03', 'SUMUP *NEGOZIO ESEMPIO 2', 'import'),
   ('60000000-0000-0000-0000-000000000006', '00000000-0000-0000-0000-00000000000a', '10000000-0000-0000-0000-000000000001',
-   null, null, -100, '2026-10-04', 'SATISPAY', 'import'),
+   null, -100, '2026-10-04', 'SATISPAY', 'import'),
   ('60000000-0000-0000-0000-000000000007', '00000000-0000-0000-0000-00000000000a', '10000000-0000-0000-0000-000000000001',
-   '30000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000001', -6000, '2026-10-05', 'BONIFICO ESEGUITO', 'import'),
+   '30000000-0000-0000-0000-000000000003', -6000, '2026-10-05', 'BONIFICO ESEGUITO', 'import'),
   ('60000000-0000-0000-0000-000000000008', '00000000-0000-0000-0000-00000000000a', '10000000-0000-0000-0000-000000000001',
-   null, null, -6000, '2026-09-05', 'BONIFICO ESEGUITO', 'import');
+   null, -6000, '2026-09-05', 'BONIFICO ESEGUITO', 'import');
 
 select is(
   array[public.merchant_key('BAR ESEMPIO MUSIC B PALERMO IT'), public.merchant_key('SumUp  *Negozio esempio di'),
@@ -59,8 +62,8 @@ select is(
   'Da assegnare in Rubrica: un nome per esercente, anche con nomi grezzi diversi'
 );
 
--- L'utente assegna il primo movimento a mano, poi l'app chiede di propagare.
-update public.transactions set category_id = '30000000-0000-0000-0000-000000000002', bucket_id = '20000000-0000-0000-0000-000000000002'
+-- L'utente assegna il primo movimento a mano (riga Uscite di ottobre), poi l'app chiede di propagare.
+update public.transactions set line_id = '30000000-0000-0000-0000-000000000004'
 where id = '60000000-0000-0000-0000-000000000001';
 create temp table risultato as select public.assign_like('60000000-0000-0000-0000-000000000001') as r;
 
@@ -70,41 +73,40 @@ select is(
   'assegnare un movimento assegna anche l''altro dello stesso esercente (nome grezzo diverso)'
 );
 select results_eq(
-  $$ select id, category_id, bucket_id from public.transactions
+  $$ select id, line_id from public.transactions
      where id in ('60000000-0000-0000-0000-000000000002', '60000000-0000-0000-0000-000000000003') order by id $$,
-  $$ values ('60000000-0000-0000-0000-000000000002'::uuid, '30000000-0000-0000-0000-000000000002'::uuid, '20000000-0000-0000-0000-000000000002'::uuid),
-            ('60000000-0000-0000-0000-000000000003'::uuid, '30000000-0000-0000-0000-000000000001'::uuid, '20000000-0000-0000-0000-000000000001'::uuid) $$,
-  'il movimento già assegnato a mano non cambia'
+  $$ values ('60000000-0000-0000-0000-000000000002'::uuid, '30000000-0000-0000-0000-000000000002'::uuid),
+            ('60000000-0000-0000-0000-000000000003'::uuid, '30000000-0000-0000-0000-000000000001'::uuid) $$,
+  'l''altro va sulla riga con lo stesso nome nel suo mese; quello già assegnato a mano non cambia'
 );
-select results_eq(
-  $$ select default_category_id, default_bucket_id from public.merchants where name = 'Bar Esempio Music B' $$,
-  $$ values ('30000000-0000-0000-0000-000000000002'::uuid, '20000000-0000-0000-0000-000000000002'::uuid) $$,
-  'l''assegnazione diventa la regola dell''esercente'
+select is(
+  (select default_line_name from public.merchants where name = 'Bar Esempio Music B'),
+  'Uscite',
+  'il nome della riga diventa la regola dell''esercente'
 );
 
 select public.undo_assign_like((select r from risultato));
 select results_eq(
-  $$ select category_id, bucket_id from public.transactions
+  $$ select line_id from public.transactions
      where id in ('60000000-0000-0000-0000-000000000001', '60000000-0000-0000-0000-000000000002') order by id $$,
-  $$ values ('30000000-0000-0000-0000-000000000002'::uuid, '20000000-0000-0000-0000-000000000002'::uuid),
-            (null::uuid, null::uuid) $$,
+  $$ values ('30000000-0000-0000-0000-000000000004'::uuid), (null::uuid) $$,
   'Annulla: torna da assegnare solo l''altro movimento; quello modificato a mano resta'
 );
 select is(
-  (select default_category_id from public.merchants where name = 'Bar Esempio Music B'),
-  null::uuid,
+  (select default_line_name from public.merchants where name = 'Bar Esempio Music B'),
+  null::text,
   'Annulla: anche la regola torna com''era'
 );
 
 -- Di nuovo, per le prove successive.
 select public.assign_like('60000000-0000-0000-0000-000000000001');
 
--- Un movimento inserito dall'app con un nome grezzo prende esercente e regola (trigger).
+-- Un movimento inserito dall'app con un nome grezzo prende esercente e riga (trigger).
 insert into public.transactions (account_id, amount_cents, booking_date, merchant_raw)
 values ('10000000-0000-0000-0000-000000000001', -900, '2026-10-05', 'Bar esempio music b PALERMO IT');
-select results_eq(
-  $$ select category_id, bucket_id from public.transactions where amount_cents = -900 $$,
-  $$ values ('30000000-0000-0000-0000-000000000002'::uuid, '20000000-0000-0000-0000-000000000002'::uuid) $$,
+select is(
+  (select line_id from public.transactions where amount_cents = -900),
+  '30000000-0000-0000-0000-000000000004'::uuid,
   'un movimento nuovo dello stesso esercente arriva già assegnato'
 );
 
@@ -114,6 +116,12 @@ select is(
   2,
   'pattern "contiene": collega tutti i movimenti passati che lo contengono'
 );
+update public.merchants set default_line_name = 'spesa' where name = 'Negozio sotto casa';
+select is(
+  public.apply_merchant_rule((select id from public.merchants where name = 'Negozio sotto casa')),
+  2,
+  'regola scelta dalla Rubrica: i movimenti da assegnare vanno sulla riga con quel nome (maiuscole a parte)'
+);
 -- Nomi generici da ignorare: niente esercente, niente propagazione.
 insert into public.merchant_aliases (pattern, ignored) values ('SATISPAY', true);
 select is(
@@ -121,7 +129,7 @@ select is(
   null::text[],
   'Da assegnare si svuota: nomi collegati o ignorati'
 );
-update public.transactions set category_id = '30000000-0000-0000-0000-000000000001', bucket_id = '20000000-0000-0000-0000-000000000001'
+update public.transactions set line_id = '30000000-0000-0000-0000-000000000003'
 where id = '60000000-0000-0000-0000-000000000006';
 select is(
   public.assign_like('60000000-0000-0000-0000-000000000006'),
@@ -139,50 +147,51 @@ select is(
   'esercenti: il bar e il negozio'
 );
 
--- Una notifica di quell'esercente arriva già con il nome, la categoria e il secchio.
+-- Una notifica di quell'esercente arriva già con il nome e la riga.
 reset role;
 set local role anon;
 select public.ingest('token-a', 'n1', '2026-10-18 20:48+02', 'BBVA', null, null,
   'Pagamento accettato 👍💳Pagamento di 7,00 EUR presso BAR ESEMPIO MUSIC B effettuato con la tua carta *1234');
 reset role;
 select results_eq(
-  $$ select m.name, t.category_id, t.bucket_id from public.transactions t join public.merchants m on m.id = t.merchant_id
+  $$ select m.name, b.name from public.transactions t join public.merchants m on m.id = t.merchant_id
+     join public.budget_lines b on b.id = t.line_id
      where t.user_id = '00000000-0000-0000-0000-00000000000a' and t.source = 'notification' $$,
-  $$ values ('Bar Esempio Music B', '30000000-0000-0000-0000-000000000002'::uuid, '20000000-0000-0000-0000-000000000002'::uuid) $$,
-  'notifica: esercente riconosciuto, categoria e secchio dalla regola'
+  $$ values ('Bar Esempio Music B', 'Uscite') $$,
+  'notifica: esercente riconosciuto, riga dalla regola'
 );
 
--- Esercente che varia: "chiedi ogni volta" toglie il secchio dalla regola e ferma la propagazione.
+-- Esercente che varia: "chiedi ogni volta" toglie la riga dalla regola e ferma la propagazione.
 set local role authenticated;
 select set_config('request.jwt.claims', '{"sub":"00000000-0000-0000-0000-00000000000a","role":"authenticated"}', true);
 select throws_ok(
   $$ update public.merchants set ask_each_time = true where name = 'Bar Esempio Music B' $$,
   '23514', null,
-  'chiedi ogni volta: la regola non può avere un secchio'
+  'chiedi ogni volta: la regola non può avere una riga'
 );
-update public.merchants set ask_each_time = true, default_bucket_id = null where name = 'Bar Esempio Music B';
+update public.merchants set ask_each_time = true, default_line_name = null where name = 'Bar Esempio Music B';
 insert into public.transactions (id, account_id, amount_cents, booking_date, merchant_raw) values
   ('60000000-0000-0000-0000-000000000009', '10000000-0000-0000-0000-000000000001', -1200, '2026-10-20', 'BAR ESEMPIO MUSIC B'),
   ('60000000-0000-0000-0000-000000000010', '10000000-0000-0000-0000-000000000001', -1300, '2026-10-21', 'BAR ESEMPIO MUSIC B');
-update public.transactions set bucket_id = '20000000-0000-0000-0000-000000000001' where id = '60000000-0000-0000-0000-000000000009';
+update public.transactions set line_id = '30000000-0000-0000-0000-000000000003' where id = '60000000-0000-0000-0000-000000000009';
 select is(
   public.assign_like('60000000-0000-0000-0000-000000000009'),
   null::jsonb,
   'chiedi ogni volta: assegnare un movimento non propaga'
 );
 select results_eq(
-  $$ select t.category_id, t.bucket_id, m.default_bucket_id from public.transactions t join public.merchants m on m.id = t.merchant_id
+  $$ select t.line_id, m.default_line_name from public.transactions t join public.merchants m on m.id = t.merchant_id
      where t.id = '60000000-0000-0000-0000-000000000010' $$,
-  $$ values ('30000000-0000-0000-0000-000000000002'::uuid, null::uuid, null::uuid) $$,
-  'chiedi ogni volta: l''altro movimento ha la categoria della regola, il secchio resta da scegliere e la regola non cambia'
+  $$ values (null::uuid, null::text) $$,
+  'chiedi ogni volta: l''altro movimento resta da assegnare e la regola non cambia'
 );
 
 -- Eliminare un esercente: i movimenti restano assegnati, perdono solo l'esercente; i suoi nomi tornano da assegnare.
 delete from public.merchants where name = 'Bar Esempio Music B';
 select results_eq(
-  $$ select merchant_id, category_id, bucket_id from public.transactions where id = '60000000-0000-0000-0000-000000000001' $$,
-  $$ values (null::uuid, '30000000-0000-0000-0000-000000000002'::uuid, '20000000-0000-0000-0000-000000000002'::uuid) $$,
-  'esercente eliminato: il movimento resta con categoria e secchio, senza esercente'
+  $$ select merchant_id, line_id from public.transactions where id = '60000000-0000-0000-0000-000000000001' $$,
+  $$ values (null::uuid, '30000000-0000-0000-0000-000000000004'::uuid) $$,
+  'esercente eliminato: il movimento resta sulla sua riga, senza esercente'
 );
 select is(
   (select count(*) from public.merchant_inbox where key = 'BAR ESEMPIO MUSIC B'),

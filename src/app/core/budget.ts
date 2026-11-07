@@ -4,49 +4,37 @@ import { MonthLine, supabase } from './supabase';
 
 type Result = { error: { message: string } | null; status: number };
 
-const ON_CONFLICT = 'user_id,month,category_id,bucket_id';
+/** Verso di una riga: le entrate (senza secchio) positive, le righe dei secchi negative. */
+export function lineKind(bucketId: string | null): 'income' | 'expense' {
+  return bucketId ? 'expense' : 'income';
+}
 
-/** Verso normale di una categoria: entrate positive, uscite e risparmi negativi. */
 export function kindSign(kind: string): number {
   return kind === 'income' ? 1 : -1;
 }
 
 /** Quanto resta di un secchio nel mese: previsto meno speso, con importi negativi; sotto zero se hai sforato. */
 export function bucketLeft(lines: MonthLine[], bucketId: string): number {
-  return lines.filter((l) => l.bucket_id === bucketId).reduce((sum, l) => sum + l.actual - (l.forecast ?? 0), 0);
+  return lines.filter((l) => l.bucket_id === bucketId).reduce((sum, l) => sum + l.actual - l.forecast, 0);
 }
 
-/**
- * Le righe del mese con una riga spostata in un altro secchio, come fa move_month_row: se lì la
- * categoria c'era già, previsione, effettivo e movimenti si sommano. Serve a mostrarla subito.
- */
-export function moveLine(lines: MonthLine[], categoryId: string, from: string, to: string): MonthLine[] {
-  const moving = lines.find((l) => l.category_id === categoryId && l.bucket_id === from);
-  if (!moving) return lines;
-  const target = lines.find((l) => l.category_id === categoryId && l.bucket_id === to);
-  const rest = lines.filter((l) => l !== moving && l !== target);
-  if (!target) return [...rest, { ...moving, bucket_id: to }];
-  const forecast = moving.forecast === null && target.forecast === null ? null : (moving.forecast ?? 0) + (target.forecast ?? 0);
-  return [...rest, { ...target, forecast, actual: target.actual + moving.actual, n: target.n + moving.n }];
+/** Le righe del mese con una riga già nel nuovo secchio: serve a mostrarla subito mentre si salva. */
+export function moveLine(lines: MonthLine[], id: string, to: string): MonthLine[] {
+  return lines.map((l) => (l.id === id ? { ...l, bucket_id: to } : l));
 }
 
 /**
  * Previsione → testo con il segno, come gli altri importi dell'app. Un importo nel verso
- * opposto alla categoria (es. un rimborso previsto tra le spese) porta il "+" esplicito,
+ * opposto alla riga (es. un rimborso previsto tra le spese) porta il "+" esplicito,
  * così rileggendolo con inputToForecast non cambia verso.
  */
 export function signedText(cents: number, kind: string): string {
   return (cents > 0 && kindSign(kind) < 0 ? '+' : '') + centsToInput(cents);
 }
 
-/** Testo del campo della previsione (vuoto se non c'è o se è quella predefinita). */
-export function forecastToInput(forecast: number | null, kind: string, isDefault: boolean): string {
-  return forecast === null || isDefault ? '' : signedText(forecast, kind);
-}
-
 /**
- * Testo del campo → previsione; null = nessuna previsione; undefined = non valido.
- * Senza segno vale il verso della categoria (uscite negative); con "-" o "+" vale quello scritto.
+ * Testo del campo → previsione; null = campo vuoto; undefined = non valido.
+ * Senza segno vale il verso della riga (uscite negative); con "-" o "+" vale quello scritto.
  */
 export function inputToForecast(text: string, kind: string): number | null | undefined {
   const t = text.trim();
@@ -57,39 +45,61 @@ export function inputToForecast(text: string, kind: string): number | null | und
   return explicit ? cents : cents * kindSign(kind) || 0;
 }
 
-/** Scrive la previsione di una riga; con null la cancella (per il risparmio torna la predefinita). */
-export async function writeForecast(month: string, categoryId: string, bucketId: string | null, amount: number | null): Promise<Result> {
-  if (amount !== null) {
-    const row = { month, category_id: categoryId, bucket_id: bucketId, amount_cents: amount };
-    return await supabase.from('budget_lines').upsert(row, { onConflict: ON_CONFLICT });
-  }
-  const q = supabase.from('budget_lines').delete().eq('month', month).eq('category_id', categoryId);
-  return await (bucketId ? q.eq('bucket_id', bucketId) : q.is('bucket_id', null));
+export async function addLine(month: string, name: string, bucketId: string | null, amount: number, sortOrder: number): Promise<Result> {
+  return await supabase.from('budget_lines').insert({ month, name: name.trim(), bucket_id: bucketId, amount_cents: amount, sort_order: sortOrder });
 }
 
-export interface ForecastLine {
-  category_id: string;
-  bucket_id: string | null;
-  forecast: number;
+/** Rinomina, sposta di secchio o cambia il previsto di una riga: i suoi movimenti la seguono. */
+export async function updateLine(id: string, patch: { name?: string; bucket_id?: string; amount_cents?: number }): Promise<Result> {
+  return await supabase.from('budget_lines').update(patch).eq('id', id);
+}
+
+/** Elimina la riga: i suoi movimenti tornano da assegnare. */
+export async function deleteLine(id: string): Promise<Result> {
+  return await supabase.from('budget_lines').delete().eq('id', id);
 }
 
 /**
- * Copia le righe nei mesi dopo `from`, fino a `until` compreso: sostituisce le stesse righe
- * (categoria e secchio) e lascia le altre. Se ne sostituisce qualcuna chiede conferma.
+ * Scrive il previsto della riga con quel nome nel mese (dalla griglia annuale): la crea se manca;
+ * con null la azzera senza crearla. Un mese vuoto prima copia le righe del mese precedente.
+ */
+export async function writeByName(month: string, name: string, bucketId: string | null, amount: number | null): Promise<Result> {
+  const ensured = await supabase.rpc('ensure_month_lines', { p_month: month });
+  if (ensured.error) return ensured;
+  if (amount === null) return await supabase.from('budget_lines').update({ amount_cents: 0 }).eq('month', month).eq('name', name);
+  const row = { month, name, bucket_id: bucketId, amount_cents: amount };
+  return await supabase.from('budget_lines').upsert(row, { onConflict: 'user_id,month,name' });
+}
+
+export interface ForecastLine {
+  name: string;
+  bucket_id: string | null;
+  forecast: number;
+  sort_order: number;
+}
+
+/**
+ * Copia le righe nei mesi dopo `from`, fino a `until` compreso: sostituisce le righe con lo
+ * stesso nome e lascia le altre. Se ne sostituisce qualcuna chiede conferma.
  */
 export async function copyForecast(from: string, until: string, lines: ForecastLine[]): Promise<Result | 'cancelled'> {
   const months: string[] = [];
   for (let m = shiftMonth(from, 1); m <= until; m = shiftMonth(m, 1)) months.push(m);
-  const existing = await supabase.from('budget_lines').select('category_id, bucket_id').gt('month', from).lte('month', until);
+  const existing = await supabase.from('budget_lines').select('name').gt('month', from).lte('month', until);
   if (existing.error) return existing;
-  const keys = new Set(lines.map((l) => `${l.category_id}/${l.bucket_id}`));
-  const replaced = existing.data.filter((r) => keys.has(`${r.category_id}/${r.bucket_id}`)).length;
+  const names = new Set(lines.map((l) => l.name));
+  const replaced = existing.data.filter((r) => names.has(r.name)).length;
   const range = `${monthLabel(months[0])} – ${monthLabel(until)}`;
-  if (replaced && !confirm(`In ${range} ${replaced === 1 ? 'una previsione verrà sostituita' : `${replaced} previsioni verranno sostituite`}. Continuare?`)) {
+  if (replaced && !confirm(`In ${range} ${replaced === 1 ? 'una riga verrà sostituita' : `${replaced} righe verranno sostituite`}. Continuare?`)) {
     return 'cancelled';
   }
+  // I mesi vuoti prima prendono tutte le righe del mese precedente, come quando si aprono.
+  for (const month of months) {
+    const ensured = await supabase.rpc('ensure_month_lines', { p_month: month });
+    if (ensured.error) return ensured;
+  }
   const rows = months.flatMap((month) =>
-    lines.map((l) => ({ month, category_id: l.category_id, bucket_id: l.bucket_id, amount_cents: l.forecast })),
+    lines.map((l) => ({ month, name: l.name, bucket_id: l.bucket_id, amount_cents: l.forecast, sort_order: l.sort_order })),
   );
-  return await supabase.from('budget_lines').upsert(rows, { onConflict: ON_CONFLICT });
+  return await supabase.from('budget_lines').upsert(rows, { onConflict: 'user_id,month,name' });
 }

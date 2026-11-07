@@ -1,20 +1,19 @@
-import { Bucket, Category, MonthOverview } from '../../core/supabase';
+import { lineKind } from '../../core/budget';
+import { Bucket, MonthOverview } from '../../core/supabase';
 
 export interface Cell {
-  /** null = nessuna previsione. */
+  /** null = la riga non c'è in quel mese. */
   forecast: number | null;
   /** null solo nei residui prima del mese di avvio. */
   actual: number | null;
-  isDefault: boolean;
 }
 
 export interface GridRow {
   key: string;
   label: string;
   kind: string;
-  categoryId: string | null;
   bucketId: string | null;
-  /** Riga categoria/secchio: la previsione si modifica. */
+  /** Riga del mese (nome e secchio): la previsione si modifica. */
   editable: boolean;
   cells: Cell[];
   total: Cell;
@@ -35,80 +34,66 @@ export interface YearPivot {
   totals: GridRow[];
 }
 
-const empty = (): Cell => ({ forecast: null, actual: 0, isDefault: false });
+const empty = (): Cell => ({ forecast: null, actual: 0 });
 
 function add(a: number | null, b: number | null): number | null {
   return a === null ? b : b === null ? a : a + b;
 }
 
 function sum(cells: Cell[]): Cell {
-  return cells.reduce((s, c) => ({ forecast: add(s.forecast, c.forecast), actual: add(s.actual, c.actual), isDefault: false }), {
-    forecast: null,
-    actual: 0,
-    isDefault: false,
-  });
+  return cells.reduce((s, c) => ({ forecast: add(s.forecast, c.forecast), actual: add(s.actual, c.actual) }), { forecast: null, actual: 0 });
 }
 
 /**
  * Dai 12 month_overview dell'anno alle righe della griglia. Nessun calcolo nuovo: le celle
- * sono quelle della vista mese, qui si raggruppano soltanto (stesse regole di Month).
+ * sono quelle della vista mese, qui si raggruppano soltanto. Una riga dell'anno è un nome in
+ * un secchio: lo stesso nome nei vari mesi è la stessa riga, come nel foglio.
  */
-export function pivotYear(months: MonthOverview[], categories: Map<string, Category>, buckets: Bucket[]): YearPivot {
-  const rows = new Map<string, GridRow>();
+export function pivotYear(months: MonthOverview[], buckets: Bucket[]): YearPivot {
+  const rows = new Map<string, GridRow & { order: number }>();
   const unassigned: GridRow = {
     key: 'da-assegnare',
     label: 'Da assegnare',
     kind: 'expense',
-    categoryId: null,
     bucketId: null,
     editable: false,
-    cells: months.map(empty),
+    cells: months.map((m) => ({ forecast: null, actual: m.unassigned.actual })),
     total: empty(),
   };
 
   months.forEach((month, i) => {
     for (const line of month.lines) {
-      const cat = line.category_id ? categories.get(line.category_id) : undefined;
-      const kind = cat?.kind ?? (line.inflow ? 'income' : 'expense');
-      if (!cat || (kind !== 'income' && !line.bucket_id)) {
-        unassigned.cells[i].actual = (unassigned.cells[i].actual ?? 0) + line.actual;
-        continue;
-      }
-      const key = `${line.category_id}/${line.bucket_id}`;
+      const key = `${line.bucket_id}/${line.name.toLowerCase()}`;
       let row = rows.get(key);
       if (!row) {
-        row = { key, label: cat.name, kind, categoryId: cat.id, bucketId: line.bucket_id, editable: true, cells: months.map(empty), total: empty() };
+        row = { key, label: line.name, kind: lineKind(line.bucket_id), bucketId: line.bucket_id, editable: true, cells: months.map(empty), total: empty(), order: line.sort_order };
         rows.set(key, row);
       }
-      row.cells[i] = { forecast: line.forecast, actual: line.actual, isDefault: line.is_default };
+      row.cells[i] = { forecast: line.forecast, actual: line.actual };
     }
   });
 
-  const order = (r: GridRow) => categories.get(r.categoryId ?? '')?.sort_order ?? 0;
-  const all = [...rows.values()].sort((a, b) => order(a) - order(b) || a.label.localeCompare(b.label));
+  const all = [...rows.values()].sort((a, b) => a.order - b.order || a.label.localeCompare(b.label));
   for (const row of [...all, unassigned]) row.total = sum(row.cells);
 
-  const group = (key: string, title: string, keep: (r: GridRow) => boolean): GridGroup => {
-    const members = all.filter(keep);
+  const group = (key: string, title: string, bucketId: string | null): GridGroup => {
+    const members = all.filter((r) => r.bucketId === bucketId);
     const cells = months.map((_, i) => sum(members.map((r) => r.cells[i])));
     return { key, title, rows: members, cells, total: sum(cells) };
   };
-  const groups = [
-    group('entrate', 'Entrate', (r) => r.kind === 'income'),
-    ...buckets.map((b) => group(b.id, b.name, (r) => r.kind !== 'income' && r.bucketId === b.id)),
-  ].filter((g) => g.rows.length);
+  const groups = [group('entrate', 'Entrate', null), ...buckets.map((b) => group(b.id, b.name, b.id))].filter((g) => g.rows.length);
 
   // Totali come nella vista mese. Per i saldi il valore dell'anno è il primo (residuo
   // iniziale) o l'ultimo (fine mese, Salvadanaio) disponibile, non la somma.
   const flow = (key: string, label: string, kind: string, f: (m: MonthOverview) => number, a: (m: MonthOverview) => number): GridRow => {
-    const cells = months.map((m) => ({ forecast: f(m), actual: a(m), isDefault: false }));
-    return { key, label, kind, categoryId: null, bucketId: null, editable: false, cells, total: sum(cells) };
+    const cells = months.map((m) => ({ forecast: f(m), actual: a(m) }));
+    return { key, label, kind, bucketId: null, editable: false, cells, total: sum(cells) };
   };
   const balance = (key: string, label: string, f: (m: MonthOverview) => number | null, a: (m: MonthOverview) => number | null, first: boolean): GridRow => {
-    const cells = months.map((m) => ({ forecast: f(m), actual: a(m), isDefault: false }));
+    const cells = months.map((m) => ({ forecast: f(m), actual: a(m) }));
     const pick = (values: (number | null)[]) => (first ? values : [...values].reverse()).find((v) => v !== null) ?? null;
-    const total = { forecast: pick(cells.map((c) => c.forecast)), actual: pick(cells.map((c) => c.actual)), isDefault: false };
-    return { key, label, kind: 'balance', categoryId: null, bucketId: null, editable: false, cells, total };
+    const total = { forecast: pick(cells.map((c) => c.forecast)), actual: pick(cells.map((c) => c.actual)) };
+    return { key, label, kind: 'balance', bucketId: null, editable: false, cells, total };
   };
   const totals = [
     balance('inizio', 'Residuo iniziale', (m) => m.start_forecast, (m) => m.start_actual, true),

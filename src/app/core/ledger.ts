@@ -1,7 +1,7 @@
 import { computed, effect, inject, Injectable, signal, untracked } from '@angular/core';
 import { Auth } from './auth';
 import { applyPending } from './queue';
-import { Account, Bucket, Category, Merchant, MonthOverview, Settings, supabase, Tag, Transaction } from './supabase';
+import { Account, Bucket, Merchant, MonthOverview, Settings, supabase, Tag, Transaction } from './supabase';
 import { Sync } from './sync';
 
 /** Data di oggi in ora italiana, "2026-10-16". */
@@ -25,14 +25,13 @@ export function monthLabel(month: string): string {
   return label.charAt(0).toUpperCase() + label.slice(1);
 }
 
-/** Dati del mese selezionato e dati di riferimento (categorie, secchi, conti, tag). */
+/** Dati del mese selezionato e dati di riferimento (secchi, conti, tag). */
 @Injectable({ providedIn: 'root' })
 export class Ledger {
   private readonly auth = inject(Auth);
   private readonly sync = inject(Sync);
 
   readonly month = signal(currentMonth());
-  readonly categories = signal<Category[]>([]);
   readonly buckets = signal<Bucket[]>([]);
   readonly accounts = signal<Account[]>([]);
   readonly tags = signal<Tag[]>([]);
@@ -57,7 +56,9 @@ export class Ledger {
       .sort((a, b) => b.booking_date.localeCompare(a.booking_date) || b.occurred_at.localeCompare(a.occurred_at)),
   );
 
-  readonly categoryById = computed(() => new Map(this.categories().map((c) => [c.id, c])));
+  /** Le righe del mese selezionato, nell'ordine scritto. */
+  readonly lines = computed(() => this.overview()?.lines ?? []);
+  readonly lineById = computed(() => new Map(this.lines().map((l) => [l.id, l])));
   readonly bucketById = computed(() => new Map(this.buckets().map((b) => [b.id, b])));
   readonly accountById = computed(() => new Map(this.accounts().map((a) => [a.id, a])));
   readonly tagById = computed(() => new Map(this.tags().map((t) => [t.id, t])));
@@ -72,8 +73,7 @@ export class Ledger {
   }
 
   async load(month = this.month()): Promise<void> {
-    const [cats, buckets, accounts, tags, settings, rows, overview, events, toCheck, merchants] = await Promise.all([
-      supabase.from('categories').select().order('sort_order'),
+    const [buckets, accounts, tags, settings, rows, overview, events, toCheck, merchants] = await Promise.all([
       supabase.from('buckets').select().order('sort_order'),
       supabase.from('accounts').select().order('sort_order'),
       supabase.from('tags').select().order('name'),
@@ -86,11 +86,10 @@ export class Ledger {
       supabase.from('transactions').select('id').or('review_reason.not.is.null,status.eq.pending'),
       supabase.from('merchants').select().order('name'),
     ]);
-    const error = [cats, buckets, accounts, tags, settings, rows, overview, events, toCheck, merchants].find(
+    const error = [buckets, accounts, tags, settings, rows, overview, events, toCheck, merchants].find(
       (r) => r.error,
     )?.error;
     this.loadError.set(error ? 'Dati non aggiornati: ' + error.message : '');
-    if (cats.data) this.categories.set(cats.data);
     if (buckets.data) this.buckets.set(buckets.data);
     if (accounts.data) this.accounts.set(accounts.data);
     if (tags.data) this.tags.set(tags.data);
@@ -101,6 +100,11 @@ export class Ledger {
     if (month === this.month()) {
       if (rows.data) this.serverRows.set(rows.data);
       if (overview.data) this.loaded.set({ month, overview: overview.data as unknown as MonthOverview });
+    }
+    // Un mese ancora senza righe prende quelle del mese precedente (solo online: è una scrittura).
+    if ((overview.data as unknown as MonthOverview | null)?.lines.length === 0) {
+      const copied = await supabase.rpc('ensure_month_lines', { p_month: month });
+      if (copied.data) await this.load(month);
     }
   }
 }

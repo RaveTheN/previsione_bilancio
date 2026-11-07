@@ -4,7 +4,7 @@ import { currentMonth, Ledger } from '../../core/ledger';
 import { errorText, supabase } from '../../core/supabase';
 import { Sync } from '../../core/sync';
 import { ChartView } from './chart';
-import { bucketChart, categoryChart, ChartData, merchantChart, periodOptions, periodRange, recurringChart, savingsChart, spendingTree } from './chart-data';
+import { bucketChart, ChartData, lineChart, merchantChart, periodOptions, periodRange, savingsChart, spendingTree } from './chart-data';
 import { PieView } from './pie';
 
 /** Il filtro del periodo vale per tutti i grafici: i numeri sono quelli di griglia e vista mese. */
@@ -99,21 +99,19 @@ export class Charts {
 
   protected readonly tree = computed(() => {
     const data = this.data();
-    return data && spendingTree(data.spending, this.ledger.categoryById());
+    return data && spendingTree(data.spending, this.ledger.buckets());
   });
 
   protected readonly charts = computed(() => {
     const data = this.data();
     if (!data) return [];
-    const categories = this.ledger.categoryById();
     const past = data.months.filter((m) => m.month <= this.current);
     return [
       { heading: 'Risparmio accumulato', spec: savingsChart(data.months, this.current) },
-      { heading: 'Uscite: previsto ed effettivo', spec: categoryChart(past, categories, 'expense') },
-      { heading: 'Entrate: previsto ed effettivo', spec: categoryChart(past, categories, 'income') },
+      { heading: 'Uscite: previsto ed effettivo', spec: lineChart(past, 'expense') },
+      { heading: 'Entrate: previsto ed effettivo', spec: lineChart(past, 'income') },
       { heading: 'Ripartizione nei secchi', spec: bucketChart(past, this.ledger.buckets()) },
       { heading: 'Top esercenti', spec: merchantChart(data.merchants) },
-      { heading: 'Ricorrenti e abbonamenti', spec: recurringChart(data.recurring, data.months) },
     ];
   });
 

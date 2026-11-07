@@ -26,7 +26,7 @@ import { PAGE_STYLES } from '../../shared/page-styles';
 
     <p class="note">
       Tutto è calcolato dal piano: una rata conta come pagata dal giorno della sua scadenza. Se ne salti o ne anticipi una, l'app non
-      può saperlo. Il peso sullo stipendio si vede nella pagina Mese.
+      può saperlo. Il peso sulle entrate si vede nella pagina Mese.
     </p>
 
     <fieldset [disabled]="!online()">

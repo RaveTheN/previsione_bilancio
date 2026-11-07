@@ -6,25 +6,23 @@ import { MatMenuModule } from '@angular/material/menu';
 import { CdkDrag, CdkDragDrop, CdkDragHandle, CdkDropList, CdkDropListGroup } from '@angular/cdk/drag-drop';
 import { MatSnackBar } from '@angular/material/snack-bar';
 import { currentMonth, Ledger, monthLabel, shiftMonth } from '../../core/ledger';
-import { copyForecast, forecastToInput, inputToForecast, moveLine, signedText, writeForecast } from '../../core/budget';
+import { addLine, copyForecast, deleteLine, inputToForecast, lineKind, moveLine, signedText, updateLine } from '../../core/budget';
 import { diffTone, formatCents } from '../../core/money';
 import { onlineSignal } from '../../core/online';
-import { Category, errorText, MonthLine, MonthOverview, supabase } from '../../core/supabase';
+import { errorText, MonthLine, MonthOverview } from '../../core/supabase';
 import { Sync } from '../../core/sync';
 import { MonthHeader, SwipeMonth } from '../../shared/month-header';
 import { QuickAddLauncher } from '../quick-add/quick-add';
 
 interface Row extends MonthLine {
-  cat: Category | undefined;
   kind: string;
-  unassigned: boolean;
 }
 
 interface Group {
   title: string;
   /** null per le entrate: non hanno secchio. */
   bucketId: string | null;
-  /** Percentuali del secchio sullo stipendio; assente per le entrate. */
+  /** Percentuali del secchio sulle entrate; assente per le entrate stesse. */
   stat: MonthOverview['buckets'][number] | undefined;
   rows: Row[];
   forecast: number;
@@ -120,14 +118,14 @@ const percent = new Intl.NumberFormat('it-IT', { style: 'percent', maximumFracti
       @if (o.debt_cents) {
         <a class="card debt" routerLink="/debiti">
           <span class="label">Rate del mese</span>
-          <strong>{{ fmt(o.debt_cents) }}{{ o.debt_pct === null ? '' : ' · ' + pct(o.debt_pct) + ' dello stipendio' }}</strong>
+          <strong>{{ fmt(o.debt_cents) }}{{ o.debt_pct === null ? '' : ' · ' + pct(o.debt_pct) + ' delle entrate' }}</strong>
         </a>
       }
 
-      @if (unassigned().n) {
+      @if (o.unassigned.n) {
         <a class="unassigned" routerLink="/movimenti" [queryParams]="{ filtro: 'da-assegnare' }">
-          <span>Da assegnare · {{ unassigned().n }} movimenti</span>
-          <strong>{{ fmt(unassigned().cents) }}</strong>
+          <span>Da assegnare · {{ o.unassigned.n }} movimenti</span>
+          <strong>{{ fmt(o.unassigned.actual) }}</strong>
         </a>
       }
 
@@ -182,32 +180,26 @@ const percent = new Intl.NumberFormat('it-IT', { style: 'percent', maximumFracti
                     </td>
                   }
                 </tr>
-                @for (r of g.rows; track r.category_id + '/' + r.bucket_id) {
-                  <tr cdkDrag cdkDragLockAxis="y" [cdkDragData]="r" [cdkDragDisabled]="r.is_default || !g.bucketId || !online()">
+                @for (r of g.rows; track r.id) {
+                  <tr cdkDrag cdkDragLockAxis="y" [cdkDragData]="r" [cdkDragDisabled]="!g.bucketId || !online()">
                     <th scope="row">
-                      <!-- Le righe predefinite (ricorrenti, risparmio, interessi) si cambiano da dove nascono. -->
-                      @if (r.is_default) {
-                        {{ r.cat!.name }}
-                        <span class="sub">{{ defaultText(r) }}</span>
-                      } @else {
-                        @if (g.bucketId) {
-                          <!-- Solo la maniglia trascina: il resto della riga si tocca e scorre normalmente. -->
-                          <span class="handle" cdkDragHandle [attr.title]="'Trascina ' + r.cat!.name + ' in un altro secchio'">
-                            <svg viewBox="0 -960 960 960" aria-hidden="true"><path [attr.d]="dragIcon" /></svg>
-                          </span>
-                        }
-                        <button type="button" class="name" [matMenuTriggerFor]="rowMenu" [matMenuTriggerData]="{ r }">
-                          {{ r.cat!.name }} <span aria-hidden="true">▾</span>
-                        </button>
+                      @if (g.bucketId) {
+                        <!-- Solo la maniglia trascina: il resto della riga si tocca e scorre normalmente. -->
+                        <span class="handle" cdkDragHandle [attr.title]="'Trascina ' + r.name + ' in un altro secchio'">
+                          <svg viewBox="0 -960 960 960" aria-hidden="true"><path [attr.d]="dragIcon" /></svg>
+                        </span>
                       }
+                      <button type="button" class="name" [matMenuTriggerFor]="rowMenu" [matMenuTriggerData]="{ r }">
+                        {{ r.name }} <span aria-hidden="true">▾</span>
+                      </button>
                     </th>
                     <td>
                       <input
                         inputmode="decimal"
                         autocomplete="off"
-                        [attr.aria-label]="'Previsione ' + r.cat!.name + ' · ' + g.title"
+                        [attr.aria-label]="'Previsione ' + r.name + ' · ' + g.title"
                         [value]="forecastText(r)"
-                        [placeholder]="placeholder(r)"
+                        placeholder="—"
                         (change)="setForecast(r, $event)"
                       />
                     </td>
@@ -222,6 +214,7 @@ const percent = new Intl.NumberFormat('it-IT', { style: 'percent', maximumFracti
           </table>
           <mat-menu #rowMenu="matMenu">
             <ng-template matMenuContent let-r="r">
+              <button mat-menu-item type="button" (click)="renameRow(r)">Rinomina</button>
               @if (r.kind !== 'income') {
                 @for (b of ledger.buckets(); track b.id) {
                   @if (b.id !== r.bucket_id) {
@@ -232,27 +225,21 @@ const percent = new Intl.NumberFormat('it-IT', { style: 'percent', maximumFracti
               <button mat-menu-item type="button" (click)="deleteRow(r)">Elimina la riga</button>
             </ng-template>
           </mat-menu>
-        } @else if (!unassigned().n) {
-          <p class="note">Nessun movimento né previsione in questo mese: aggiungi una riga qui sotto.</p>
+        } @else {
+          <p class="note">Nessuna riga in questo mese: scrivi la lista qui sotto, come nel foglio.</p>
         }
 
         <details class="tool">
           <summary>Aggiungi una riga</summary>
-          <form (ngSubmit)="addLine()">
-            <select name="category" aria-label="Categoria" [ngModel]="newCategory()" (ngModelChange)="newCategory.set($event)">
-              <option value="">Categoria</option>
-              @for (c of activeCategories(); track c.id) {
-                <option [value]="c.id">{{ c.name }}</option>
+          <form (ngSubmit)="addRow()">
+            <input name="name" autocomplete="off" placeholder="Nome (es. Affitto)" aria-label="Nome della riga" [(ngModel)]="newName" />
+            <select name="bucket" aria-label="Secchio" [(ngModel)]="newBucket">
+              <option value="">Secchio</option>
+              @for (b of ledger.buckets(); track b.id) {
+                <option [value]="b.id">{{ b.name }}</option>
               }
+              <option value="entrate">Entrate</option>
             </select>
-            @if (newKind() !== 'income') {
-              <select name="bucket" aria-label="Secchio" [(ngModel)]="newBucket">
-                <option value="">Secchio</option>
-                @for (b of ledger.buckets(); track b.id) {
-                  <option [value]="b.id">{{ b.name }}</option>
-                }
-              </select>
-            }
             <input name="amount" inputmode="decimal" autocomplete="off" placeholder="0,00" aria-label="Importo" [(ngModel)]="newAmount" />
             <button mat-stroked-button type="submit">Aggiungi</button>
           </form>
@@ -507,45 +494,30 @@ export class Month {
   /** Nei mesi futuri non c'è un effettivo da mostrare: solo la previsione. */
   protected readonly future = computed(() => this.ledger.month() > currentMonth());
   protected readonly busy = signal(false);
-  protected readonly newCategory = signal('');
+  protected newName = '';
   protected newBucket = '';
   protected newAmount = '';
   protected copyUntil = '';
 
-  /** Riga appena trascinata: si vede già nel nuovo secchio mentre si salva. */
   /** Maniglia: sei puntini, due colonne per tre righe. */
   protected readonly dragIcon = [360, 600].flatMap((x) => [-720, -480, -240].map((y) => `M${x - 70} ${y}a70 70 0 1 0 140 0a70 70 0 1 0 -140 0Z`)).join('');
-  private readonly moving = signal<{ categoryId: string; from: string; to: string } | null>(null);
+  /** Riga appena trascinata: si vede già nel nuovo secchio mentre si salva. */
+  private readonly moving = signal<{ id: string; to: string } | null>(null);
 
   private readonly rows = computed<Row[]>(() => {
-    const cats = this.ledger.categoryById();
     const m = this.moving();
-    const lines = this.ov()?.lines ?? [];
-    return (m ? moveLine(lines, m.categoryId, m.from, m.to) : lines).map((l) => {
-      const cat = l.category_id ? cats.get(l.category_id) : undefined;
-      const kind = cat?.kind ?? (l.inflow ? 'income' : 'expense');
-      return { ...l, cat, kind, unassigned: !cat || (kind !== 'income' && !l.bucket_id) };
-    });
+    const lines = this.ledger.lines();
+    return (m ? moveLine(lines, m.id, m.to) : lines).map((l) => ({ ...l, kind: lineKind(l.bucket_id) }));
   });
 
-  protected readonly unassigned = computed(() =>
-    this.rows()
-      .filter((r) => r.unassigned)
-      .reduce((acc, r) => ({ n: acc.n + r.n, cents: acc.cents + r.actual }), { n: 0, cents: 0 }),
-  );
-
-  /** Entrate, poi un gruppo per secchio (uscite e risparmi), con le righe nell'ordine delle categorie. */
+  /** Entrate, poi un gruppo per secchio, con le righe nell'ordine scritto. */
   protected readonly groups = computed<Group[]>(() => {
-    const group = (title: string, bucketId: string | null, keep: (r: Row) => boolean): Group => {
-      const rows = this.rows()
-        .filter((r) => !r.unassigned && keep(r))
-        .sort((a, b) => a.cat!.sort_order - b.cat!.sort_order || a.cat!.name.localeCompare(b.cat!.name));
-      const forecast = rows.reduce((s, r) => s + (r.forecast ?? 0), 0);
+    const group = (title: string, bucketId: string | null): Group => {
+      const rows = this.rows().filter((r) => r.bucket_id === bucketId);
       const stat = this.ov()?.buckets.find((s) => s.bucket_id === bucketId);
-      return { title, bucketId, stat, rows, forecast, actual: rows.reduce((s, r) => s + r.actual, 0) };
+      return { title, bucketId, stat, rows, forecast: rows.reduce((s, r) => s + r.forecast, 0), actual: rows.reduce((s, r) => s + r.actual, 0) };
     };
-    const buckets = this.ledger.buckets().map((b) => group(b.name, b.id, (r) => r.kind !== 'income' && r.bucket_id === b.id));
-    const all = [group('Entrate', null, (r) => r.kind === 'income'), ...buckets];
+    const all = [group('Entrate', null), ...this.ledger.buckets().map((b) => group(b.name, b.id))];
     // I secchi restano anche vuoti, come nel foglio: servono per lasciarci una riga trascinata.
     return all.some((g) => g.rows.length) ? all.filter((g) => g.bucketId || g.rows.length) : [];
   });
@@ -556,8 +528,6 @@ export class Month {
     return reserve == null || end == null ? null : reserve + end;
   });
 
-  protected readonly activeCategories = computed(() => this.ledger.categories().filter((c) => !c.archived));
-  protected readonly newKind = computed(() => this.ledger.categoryById().get(this.newCategory())?.kind);
   /** Fino a due anni avanti: abbastanza per pianificare anche l'anno dopo. */
   protected readonly nextMonths = computed(() => Array.from({ length: 24 }, (_, i) => shiftMonth(this.ledger.month(), i + 1)));
 
@@ -570,35 +540,18 @@ export class Month {
   }
 
   protected tone(r: Row): 'better' | 'worse' | 'even' {
-    return diffTone(r.kind, r.forecast ?? 0, r.actual);
+    return diffTone(r.kind, r.forecast, r.actual);
   }
 
   protected arrow(r: Row): string {
     return { better: ' ↑', worse: ' ↓', even: '' }[this.tone(r)];
   }
 
-  /** Spiega il risparmio predefinito: importo fisso (con la % che fa sullo stipendio) o percentuale. */
-  protected defaultText(r: Row): string {
-    if (r.cat?.is_interest) return 'Predefinita: saldo dei conti × tasso, meno il 26%';
-    if (r.kind !== 'saving') return 'Predefinita: somma delle ricorrenti';
-    const s = this.ledger.settings();
-    if (s?.savings_amount_cents == null) return `Predefinita: ${this.pct(s?.savings_pct ?? null)} dello stipendio previsto`;
-    const salary = this.rows()
-      .filter((x) => x.cat?.is_salary)
-      .reduce((sum, x) => sum + (x.forecast ?? 0), 0);
-    const share = salary > 0 ? `, ${this.pct((-100 * (r.forecast ?? 0)) / salary)} dello stipendio previsto` : '';
-    return `Predefinita: importo fisso${share}`;
-  }
-
   protected forecastText(r: Row): string {
-    return forecastToInput(r.forecast, r.kind, r.is_default);
+    return signedText(r.forecast, r.kind);
   }
 
-  protected placeholder(r: Row): string {
-    return r.is_default && r.forecast !== null ? signedText(r.forecast, r.kind) : '—';
-  }
-
-  /** Campo vuoto = nessuna previsione; per il risparmio torna quella predefinita. */
+  /** Campo vuoto = previsto a zero. */
   protected async setForecast(r: Row, e: Event): Promise<void> {
     const input = e.target as HTMLInputElement;
     const amount = inputToForecast(input.value, r.kind);
@@ -607,31 +560,43 @@ export class Month {
       input.value = this.forecastText(r);
       return;
     }
-    await this.write(r.category_id!, r.bucket_id, amount);
+    this.done(await updateLine(r.id, { amount_cents: amount ?? 0 }), 'Previsione non salvata');
   }
 
-  protected async addLine(): Promise<void> {
-    const cat = this.ledger.categoryById().get(this.newCategory());
-    const amount = cat ? inputToForecast(this.newAmount, cat.kind) : undefined;
-    if (!cat || amount == null || (cat.kind !== 'income' && !this.newBucket)) {
-      this.snackBar.open('Scegli categoria, secchio e un importo valido', 'OK', { duration: 4000 });
+  protected async addRow(): Promise<void> {
+    const name = this.newName.trim();
+    const bucketId = this.newBucket === 'entrate' ? null : this.newBucket;
+    const amount = inputToForecast(this.newAmount, lineKind(bucketId));
+    if (!name || !this.newBucket || amount === undefined) {
+      this.snackBar.open('Scrivi un nome, scegli il secchio e un importo valido', 'OK', { duration: 4000 });
       return;
     }
-    if (await this.write(cat.id, cat.kind === 'income' ? null : this.newBucket, amount)) {
+    const order = Math.max(0, ...this.rows().map((r) => r.sort_order)) + 1;
+    const res = await addLine(this.ledger.month(), name, bucketId, amount ?? 0, order);
+    if (res.error?.message.includes('budget_lines_name_uq')) {
+      this.snackBar.open(`C'è già una riga ${name} in questo mese`, 'OK', { duration: 4000 });
+      return;
+    }
+    if (this.done(res, 'Riga non aggiunta')) {
+      this.newName = '';
       this.newAmount = '';
     }
   }
 
-  /** Copia le righe scritte di questo mese nei mesi successivi: sostituisce le stesse righe, lascia le altre. */
+  protected async renameRow(r: Row): Promise<void> {
+    const name = prompt('Nuovo nome della riga', r.name)?.trim();
+    if (!name || name === r.name) return;
+    this.done(await updateLine(r.id, { name }), 'Riga non rinominata');
+  }
+
+  /** Copia le righe di questo mese nei mesi successivi: sostituisce quelle con lo stesso nome, lascia le altre. */
   protected async copy(): Promise<void> {
     const from = this.ledger.month();
     const until = this.copyUntil;
-    const lines = this.rows()
-      .filter((r) => r.forecast !== null && !r.is_default && r.category_id)
-      .map((r) => ({ category_id: r.category_id!, bucket_id: r.bucket_id, forecast: r.forecast! }));
+    const lines = this.rows().map((r) => ({ name: r.name, bucket_id: r.bucket_id, forecast: r.forecast, sort_order: r.sort_order }));
     if (!until || until <= from) return;
     if (!lines.length) {
-      this.snackBar.open('Questo mese non ha previsioni da copiare', 'OK', { duration: 4000 });
+      this.snackBar.open('Questo mese non ha righe da copiare', 'OK', { duration: 4000 });
       return;
     }
     this.busy.set(true);
@@ -646,17 +611,11 @@ export class Month {
     }
   }
 
-  /** Toglie la previsione e rimette da assegnare i movimenti del mese: così la riga sparisce davvero. */
+  /** Via la riga: i suoi movimenti tornano da assegnare. */
   protected async deleteRow(r: Row): Promise<void> {
-    const what = r.kind === 'income' ? 'senza categoria' : 'senza secchio (la categoria resta)';
-    const back = r.n ? ` I suoi ${r.n === 1 ? 'movimento torna' : `${r.n} movimenti tornano`} da assegnare, ${what}.` : '';
-    if (!confirm(`Eliminare la riga ${r.cat!.name} da ${monthLabel(this.ledger.month())}?${back}`)) return;
-    const res = await supabase.rpc('delete_month_row', {
-      p_month: this.ledger.month(),
-      p_category_id: r.category_id!,
-      p_bucket_id: r.bucket_id!,
-    });
-    this.done(res, 'Riga non eliminata');
+    const back = r.n ? ` ${r.n === 1 ? 'Il suo movimento torna' : `I suoi ${r.n} movimenti tornano`} da assegnare.` : '';
+    if (!confirm(`Eliminare la riga ${r.name} da ${monthLabel(this.ledger.month())}?${back}`)) return;
+    this.done(await deleteLine(r.id), 'Riga non eliminata');
   }
 
   /** Trascinamento in un altro secchio: stessa operazione del menu. */
@@ -665,22 +624,13 @@ export class Month {
     if (to && e.container !== e.previousContainer) void this.moveRow(e.item.data, to);
   }
 
-  /** Previsione e movimenti del mese passano insieme all'altro secchio (nel database, in un colpo solo). */
+  /** I movimenti seguono la riga: il secchio si legge dalla riga. */
   protected async moveRow(r: Row, bucketId: string): Promise<void> {
-    this.moving.set({ categoryId: r.category_id!, from: r.bucket_id!, to: bucketId });
-    const res = await supabase.rpc('move_month_row', {
-      p_month: this.ledger.month(),
-      p_category_id: r.category_id!,
-      p_from: r.bucket_id!,
-      p_to: bucketId,
-    });
+    this.moving.set({ id: r.id, to: bucketId });
+    const res = await updateLine(r.id, { bucket_id: bucketId });
     if (res.error) this.snackBar.open(`Riga non spostata: ${errorText(res)}`, 'OK');
     await this.ledger.load();
     this.moving.set(null);
-  }
-
-  private async write(categoryId: string, bucketId: string | null, amount: number | null): Promise<boolean> {
-    return this.done(await writeForecast(this.ledger.month(), categoryId, bucketId, amount), 'Previsione non salvata');
   }
 
   private done(res: { error: { message: string } | null; status: number }, message: string): boolean {
