@@ -2,12 +2,14 @@ import { Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
+import { MatMenuModule } from '@angular/material/menu';
+import { CdkDrag, CdkDragDrop, CdkDragHandle, CdkDropList, CdkDropListGroup } from '@angular/cdk/drag-drop';
 import { MatSnackBar } from '@angular/material/snack-bar';
 import { currentMonth, Ledger, monthLabel, shiftMonth } from '../../core/ledger';
-import { copyForecast, forecastToInput, inputToForecast, signedText, writeForecast } from '../../core/budget';
+import { copyForecast, forecastToInput, inputToForecast, moveLine, signedText, writeForecast } from '../../core/budget';
 import { diffTone, formatCents } from '../../core/money';
 import { onlineSignal } from '../../core/online';
-import { Category, errorText, MonthLine, MonthOverview } from '../../core/supabase';
+import { Category, errorText, MonthLine, MonthOverview, supabase } from '../../core/supabase';
 import { Sync } from '../../core/sync';
 import { MonthHeader, SwipeMonth } from '../../shared/month-header';
 import { QuickAddLauncher } from '../quick-add/quick-add';
@@ -20,6 +22,8 @@ interface Row extends MonthLine {
 
 interface Group {
   title: string;
+  /** null per le entrate: non hanno secchio. */
+  bucketId: string | null;
   /** Percentuali del secchio sullo stipendio; assente per le entrate. */
   stat: MonthOverview['buckets'][number] | undefined;
   rows: Row[];
@@ -31,7 +35,7 @@ const percent = new Intl.NumberFormat('it-IT', { style: 'percent', maximumFracti
 
 @Component({
   selector: 'app-month',
-  imports: [FormsModule, MatButtonModule, MonthHeader, RouterLink],
+  imports: [CdkDrag, CdkDragHandle, CdkDropList, CdkDropListGroup, FormsModule, MatButtonModule, MatMenuModule, MonthHeader, RouterLink],
   hostDirectives: [SwipeMonth],
   template: `
     <app-month-header />
@@ -138,7 +142,7 @@ const percent = new Intl.NumberFormat('it-IT', { style: 'percent', maximumFracti
 
       <fieldset [disabled]="!online() || busy()">
         @if (groups().length) {
-          <table class="grid">
+          <table class="grid" cdkDropListGroup>
             <thead>
               <tr>
                 <td></td>
@@ -149,7 +153,13 @@ const percent = new Intl.NumberFormat('it-IT', { style: 'percent', maximumFracti
               </tr>
             </thead>
             @for (g of groups(); track g.title) {
-              <tbody>
+              <!-- Le righe si trascinano tra i secchi; le entrate non hanno secchio. -->
+              <tbody
+                cdkDropList
+                [cdkDropListData]="g"
+                [cdkDropListDisabled]="!g.bucketId || !online()"
+                (cdkDropListDropped)="drop($event)"
+              >
                 <tr class="group">
                   <th scope="rowgroup">
                     {{ g.title }}
@@ -173,11 +183,22 @@ const percent = new Intl.NumberFormat('it-IT', { style: 'percent', maximumFracti
                   }
                 </tr>
                 @for (r of g.rows; track r.category_id + '/' + r.bucket_id) {
-                  <tr>
+                  <tr cdkDrag cdkDragLockAxis="y" [cdkDragData]="r" [cdkDragDisabled]="r.is_default || !g.bucketId || !online()">
                     <th scope="row">
-                      {{ r.cat!.name }}
+                      <!-- Le righe predefinite (ricorrenti, risparmio, interessi) si cambiano da dove nascono. -->
                       @if (r.is_default) {
+                        {{ r.cat!.name }}
                         <span class="sub">{{ defaultText(r) }}</span>
+                      } @else {
+                        @if (g.bucketId) {
+                          <!-- Solo la maniglia trascina: il resto della riga si tocca e scorre normalmente. -->
+                          <span class="handle" cdkDragHandle [attr.title]="'Trascina ' + r.cat!.name + ' in un altro secchio'">
+                            <svg viewBox="0 -960 960 960" aria-hidden="true"><path [attr.d]="dragIcon" /></svg>
+                          </span>
+                        }
+                        <button type="button" class="name" [matMenuTriggerFor]="rowMenu" [matMenuTriggerData]="{ r }">
+                          {{ r.cat!.name }} <span aria-hidden="true">▾</span>
+                        </button>
                       }
                     </th>
                     <td>
@@ -199,6 +220,20 @@ const percent = new Intl.NumberFormat('it-IT', { style: 'percent', maximumFracti
               </tbody>
             }
           </table>
+          <mat-menu #rowMenu="matMenu">
+            <ng-template matMenuContent let-r="r">
+              @if (r.kind !== 'income') {
+                @for (b of ledger.buckets(); track b.id) {
+                  @if (b.id !== r.bucket_id) {
+                    <button mat-menu-item type="button" (click)="moveRow(r, b.id)">Sposta in {{ b.name }}</button>
+                  }
+                }
+              }
+              @if (r.forecast !== null) {
+                <button mat-menu-item type="button" (click)="deleteRow(r)">Elimina la riga</button>
+              }
+            </ng-template>
+          </mat-menu>
         } @else if (!unassigned().n) {
           <p class="note">Nessun movimento né previsione in questo mese: aggiungi una riga qui sotto.</p>
         }
@@ -321,6 +356,62 @@ const percent = new Intl.NumberFormat('it-IT', { style: 'percent', maximumFracti
       vertical-align: bottom;
       font: var(--mat-sys-title-small);
     }
+    .handle {
+      display: inline-grid;
+      place-items: center;
+      width: 24px;
+      height: 40px;
+      vertical-align: middle;
+      color: var(--mat-sys-on-surface-variant);
+      cursor: grab;
+    }
+    .handle svg {
+      width: 18px;
+      height: 18px;
+      fill: currentColor;
+    }
+    .grid tbody.cdk-drop-list-receiving {
+      outline: 2px dashed var(--mat-sys-primary);
+      outline-offset: -2px;
+    }
+    /* L'anteprima esce dalla tabella: le sue celle si mettono in fila da sole. */
+    .cdk-drag-preview {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 0 12px;
+      border-radius: 8px;
+      background: var(--mat-sys-surface-container-highest);
+      box-shadow: var(--mat-sys-level3);
+    }
+    .cdk-drag-placeholder {
+      opacity: 0.3;
+    }
+    .cdk-drag-animating,
+    .cdk-drop-list-dragging .cdk-drag:not(.cdk-drag-placeholder) {
+      transition: transform 200ms cubic-bezier(0, 0, 0.2, 1);
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .cdk-drag-animating,
+      .cdk-drop-list-dragging .cdk-drag {
+        transition: none;
+      }
+    }
+    /* Il nome apre le azioni della riga, ma si legge come testo. */
+    .grid .name {
+      min-height: 40px;
+      padding: 0;
+      border: 0;
+      background: none;
+      color: inherit;
+      font: inherit;
+      text-align: left;
+      cursor: pointer;
+    }
+    .grid .name span {
+      color: var(--mat-sys-on-surface-variant);
+    }
     .grid .sub {
       display: block;
       font-weight: normal;
@@ -423,9 +514,16 @@ export class Month {
   protected newAmount = '';
   protected copyUntil = '';
 
+  /** Riga appena trascinata: si vede già nel nuovo secchio mentre si salva. */
+  /** Maniglia: sei puntini, due colonne per tre righe. */
+  protected readonly dragIcon = [360, 600].flatMap((x) => [-720, -480, -240].map((y) => `M${x - 70} ${y}a70 70 0 1 0 140 0a70 70 0 1 0 -140 0Z`)).join('');
+  private readonly moving = signal<{ categoryId: string; from: string; to: string } | null>(null);
+
   private readonly rows = computed<Row[]>(() => {
     const cats = this.ledger.categoryById();
-    return (this.ov()?.lines ?? []).map((l) => {
+    const m = this.moving();
+    const lines = this.ov()?.lines ?? [];
+    return (m ? moveLine(lines, m.categoryId, m.from, m.to) : lines).map((l) => {
       const cat = l.category_id ? cats.get(l.category_id) : undefined;
       const kind = cat?.kind ?? (l.inflow ? 'income' : 'expense');
       return { ...l, cat, kind, unassigned: !cat || (kind !== 'income' && !l.bucket_id) };
@@ -446,10 +544,12 @@ export class Month {
         .sort((a, b) => a.cat!.sort_order - b.cat!.sort_order || a.cat!.name.localeCompare(b.cat!.name));
       const forecast = rows.reduce((s, r) => s + (r.forecast ?? 0), 0);
       const stat = this.ov()?.buckets.find((s) => s.bucket_id === bucketId);
-      return { title, stat, rows, forecast, actual: rows.reduce((s, r) => s + r.actual, 0) };
+      return { title, bucketId, stat, rows, forecast, actual: rows.reduce((s, r) => s + r.actual, 0) };
     };
     const buckets = this.ledger.buckets().map((b) => group(b.name, b.id, (r) => r.kind !== 'income' && r.bucket_id === b.id));
-    return [group('Entrate', null, (r) => r.kind === 'income'), ...buckets].filter((g) => g.rows.length);
+    const all = [group('Entrate', null, (r) => r.kind === 'income'), ...buckets];
+    // I secchi restano anche vuoti, come nel foglio: servono per lasciarci una riga trascinata.
+    return all.some((g) => g.rows.length) ? all.filter((g) => g.bucketId || g.rows.length) : [];
   });
 
   protected readonly total = computed(() => {
@@ -546,6 +646,33 @@ export class Month {
     } finally {
       this.busy.set(false);
     }
+  }
+
+  /** Toglie la previsione della riga; i movimenti restano, e con loro la riga col solo effettivo. */
+  protected async deleteRow(r: Row): Promise<void> {
+    const stays = r.n ? ` I suoi ${r.n} movimenti restano: la riga resta con il solo effettivo.` : '';
+    if (!confirm(`Togliere ${r.cat!.name} dalla previsione di ${monthLabel(this.ledger.month())}?${stays}`)) return;
+    await this.write(r.category_id!, r.bucket_id, null);
+  }
+
+  /** Trascinamento in un altro secchio: stessa operazione del menu. */
+  protected drop(e: CdkDragDrop<Group, Group, Row>): void {
+    const to = e.container.data.bucketId;
+    if (to && e.container !== e.previousContainer) void this.moveRow(e.item.data, to);
+  }
+
+  /** Previsione e movimenti del mese passano insieme all'altro secchio (nel database, in un colpo solo). */
+  protected async moveRow(r: Row, bucketId: string): Promise<void> {
+    this.moving.set({ categoryId: r.category_id!, from: r.bucket_id!, to: bucketId });
+    const res = await supabase.rpc('move_month_row', {
+      p_month: this.ledger.month(),
+      p_category_id: r.category_id!,
+      p_from: r.bucket_id!,
+      p_to: bucketId,
+    });
+    if (res.error) this.snackBar.open(`Riga non spostata: ${errorText(res)}`, 'OK');
+    await this.ledger.load();
+    this.moving.set(null);
   }
 
   private async write(categoryId: string, bucketId: string | null, amount: number | null): Promise<boolean> {

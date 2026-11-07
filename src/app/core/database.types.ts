@@ -512,6 +512,9 @@ isOneToOne: false
 "month_overview":
 { Args: { "p_month": string,"p_today"?: string }; Returns: Json
                            },
+"move_month_row":
+{ Args: { "p_category_id": string,"p_from": string,"p_month": string,"p_to": string }; Returns: undefined
+                           },
 "reprocess_event":
 { Args: { "p_event_id": string }; Returns: Json
                            },

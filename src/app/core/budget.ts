@@ -17,6 +17,20 @@ export function bucketLeft(lines: MonthLine[], bucketId: string): number {
 }
 
 /**
+ * Le righe del mese con una riga spostata in un altro secchio, come fa move_month_row: se lì la
+ * categoria c'era già, previsione, effettivo e movimenti si sommano. Serve a mostrarla subito.
+ */
+export function moveLine(lines: MonthLine[], categoryId: string, from: string, to: string): MonthLine[] {
+  const moving = lines.find((l) => l.category_id === categoryId && l.bucket_id === from);
+  if (!moving) return lines;
+  const target = lines.find((l) => l.category_id === categoryId && l.bucket_id === to);
+  const rest = lines.filter((l) => l !== moving && l !== target);
+  if (!target) return [...rest, { ...moving, bucket_id: to }];
+  const forecast = moving.forecast === null && target.forecast === null ? null : (moving.forecast ?? 0) + (target.forecast ?? 0);
+  return [...rest, { ...target, forecast, actual: target.actual + moving.actual, n: target.n + moving.n }];
+}
+
+/**
  * Previsione → testo con il segno, come gli altri importi dell'app. Un importo nel verso
  * opposto alla categoria (es. un rimborso previsto tra le spese) porta il "+" esplicito,
  * così rileggendolo con inputToForecast non cambia verso.

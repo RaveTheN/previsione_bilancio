@@ -1,5 +1,17 @@
-import { bucketLeft, forecastToInput, inputToForecast } from './budget';
+import { bucketLeft, forecastToInput, inputToForecast, moveLine } from './budget';
 import { MonthLine } from './supabase';
+
+describe('spostare una riga del mese in un altro secchio', () => {
+  const line = (bucket_id: string, forecast: number | null, actual: number) => ({ category_id: 'c', bucket_id, inflow: null, forecast, actual, n: 1, is_default: false }) as MonthLine;
+
+  it('cambia secchio', () => {
+    expect(moveLine([line('fund', -5000, -3000)], 'c', 'fund', 'fun')).toEqual([line('fun', -5000, -3000)]);
+  });
+
+  it('se la categoria c\'era già nel secchio di arrivo, si somma', () => {
+    expect(moveLine([line('fund', -5000, -3000), line('fun', null, -1000)], 'c', 'fund', 'fun')).toEqual([{ ...line('fun', -5000, -4000), n: 2 }]);
+  });
+});
 
 describe('quanto resta di un secchio', () => {
   const line = (bucket_id: string | null, forecast: number | null, actual: number) => ({ category_id: 'c', bucket_id, inflow: null, forecast, actual, n: 1, is_default: false }) as MonthLine;
