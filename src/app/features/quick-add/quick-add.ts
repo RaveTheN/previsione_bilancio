@@ -7,7 +7,7 @@ import { defaultDate, lastDay, Ledger, monthLabel, shiftMonth, todayIso } from '
 import { centsToInput, parseAmount } from '../../core/money';
 import { onlineSignal } from '../../core/online';
 import { PendingOp } from '../../core/queue';
-import { errorText, isGenericOperation, MonthLine, supabase, Transaction } from '../../core/supabase';
+import { errorText, isGenericOperation, Merchant, MonthLine, supabase, Transaction } from '../../core/supabase';
 import { Sync } from '../../core/sync';
 import { TransferSheet } from '../transfer/transfer';
 
@@ -23,8 +23,28 @@ function readMap(key: string): Record<string, string | number> {
 
 /** Campi modificabili dall'app: il resto (fonte, causale importata…) non si tocca. */
 function editable(t: Transaction): Record<string, unknown> {
-  const { id, account_id, line_id, amount_cents, booking_date, occurred_at, note } = t;
-  return { id, account_id, line_id, amount_cents, booking_date, occurred_at, note };
+  const { id, account_id, line_id, merchant_id, amount_cents, booking_date, occurred_at, note } = t;
+  return { id, account_id, line_id, merchant_id, amount_cents, booking_date, occurred_at, note };
+}
+
+function findMerchant<T extends Pick<Merchant, 'name'>>(merchants: T[], name: string): T | undefined {
+  return merchants.find((m) => m.name.toLowerCase() === name.trim().toLowerCase());
+}
+
+/**
+ * Dove va il nome scritto nel campo Esercente. Un movimento senza nome della banca si collega
+ * subito a un esercente già in Rubrica, anche offline; il resto si fa dopo l'invio (pendingName).
+ */
+export function merchantChoice(
+  tx: Pick<Transaction, 'merchant_id' | 'merchant_raw'> | undefined,
+  name: string,
+  initialName: string,
+  merchants: Pick<Merchant, 'id' | 'name'>[],
+): { merchantId: string | null; pendingName: string | null } {
+  const typed = name.trim();
+  if (!typed || typed === initialName) return { merchantId: null, pendingName: null };
+  const known = !tx?.merchant_id && !tx?.merchant_raw ? findMerchant(merchants, typed) : undefined;
+  return { merchantId: known?.id ?? null, pendingName: known ? null : typed };
 }
 
 type LineChoice = Pick<MonthLine, 'id' | 'name' | 'bucket_id' | 'sort_order'>;
@@ -65,7 +85,7 @@ type TwinCandidate = Pick<Transaction, 'source' | 'account_id' | 'amount_cents' 
       @if (hasMerchant) {
         <label class="merchant">
           Esercente
-          <input name="merchant" list="elenco-esercenti" autocomplete="off" placeholder="Il nome che vuoi tu" [(ngModel)]="merchantName" />
+          <input name="merchant" list="elenco-esercenti" autocomplete="off" placeholder="Il nome che vuoi tu" [ngModel]="merchantName" (ngModelChange)="setMerchant($event)" />
           @if (tx?.merchant_raw) {
             <span class="hint">Dalla banca: {{ tx?.merchant_raw }}</span>
           }
@@ -310,7 +330,7 @@ export class QuickAdd {
   protected note = '';
   protected tagsText = '';
   /** Nome scelto per l'esercente del movimento; si salva dopo l'invio (serve la connessione). */
-  protected readonly hasMerchant = !!this.tx?.merchant_id || (!!this.tx?.merchant_raw && !isGenericOperation(this.tx.merchant_raw));
+  protected readonly hasMerchant = !!this.tx?.merchant_id || !isGenericOperation(this.tx?.merchant_raw ?? null);
   protected merchantName = this.ledger.merchantById().get(this.tx?.merchant_id ?? '')?.name ?? '';
   private readonly initialMerchantName = this.merchantName;
 
@@ -411,6 +431,13 @@ export class QuickAdd {
     this.income.set(value);
   }
 
+  /** Su un movimento nuovo propone la riga della regola: per nome, così vale nel mese della data. */
+  protected setMerchant(name: string): void {
+    this.merchantName = name;
+    const rule = this.tx || this.picked() ? null : findMerchant(this.ledger.merchants(), name)?.default_line_name;
+    if (rule) this.picked.set({ id: '', name: rule, bucket_id: null, sort_order: 0 });
+  }
+
   protected pickLine(l: LineChoice): void {
     this.picked.set(this.line()?.id === l.id ? null : l);
   }
@@ -468,6 +495,7 @@ export class QuickAdd {
         : date === todayIso()
           ? new Date().toISOString()
           : new Date(date + 'T12:00:00').toISOString();
+    const merchant = merchantChoice(this.tx, this.merchantName, this.initialMerchantName, this.ledger.merchants());
     const row = {
       id,
       account_id: this.accountId,
@@ -476,6 +504,7 @@ export class QuickAdd {
       booking_date: date,
       occurred_at: occurredAt,
       note: this.note.trim() || null,
+      ...(merchant.merchantId ? { merchant_id: merchant.merchantId } : {}),
     };
 
     const ops: PendingOp[] = [{ table: 'transactions', kind: 'upsert', row }];
@@ -512,10 +541,9 @@ export class QuickAdd {
       : [{ table: 'transactions', kind: 'delete', match: { id } }];
     // Solo un movimento ancora da assegnare insegna la regola all'esercente:
     // correggerne uno già assegnato resta un'eccezione.
-    const propagate = this.hasMerchant && !this.tx?.line_id && !!row.line_id;
-    const name = this.merchantName.trim();
+    const propagate = !!this.tx && this.hasMerchant && !this.tx.line_id && !!row.line_id;
     const otherMonth = this.lineMonth() !== this.ledger.month() ? this.lineMonth() : undefined;
-    this.ref.dismiss({ id, undo, propagate, merchantName: name && name !== this.initialMerchantName ? name : null, otherMonth });
+    this.ref.dismiss({ id, undo, propagate, merchantName: merchant.pendingName, otherMonth });
   }
 
   protected remove(): void {
@@ -582,34 +610,41 @@ export class QuickAddLauncher {
       .subscribe((saved) => {
         if (!saved) return;
         this.confirm((tx ? 'Salvato' : 'Aggiunto') + (saved.otherMonth ? ` in ${monthLabel(saved.otherMonth)}` : ''), saved.undo);
-        if (tx && (saved.propagate || saved.merchantName)) void this.afterSave(tx, saved);
+        if (saved.propagate || saved.merchantName) void this.afterSave(tx, saved);
         onSaved?.(saved.id);
       });
   }
 
   /** Dopo l'invio del movimento: nome dell'esercente, poi regola e movimenti simili. */
-  private async afterSave(tx: Transaction, saved: Saved): Promise<void> {
+  private async afterSave(tx: Transaction | undefined, saved: Saved): Promise<void> {
     await this.sync.flush();
     // shortcut: offline si salta; nome e regola si rifanno riaprendo il movimento quando torni online.
     if (this.sync.ops().length) {
       this.snackBar.open('Offline: esercente e movimenti simili non aggiornati', 'OK', { duration: 5000 });
       return;
     }
-    if (saved.merchantName && !(await this.nameMerchant(tx, saved.merchantName))) return;
-    if (saved.propagate) await this.assignLike(tx.id);
+    if (saved.merchantName && !(await this.nameMerchant(tx, saved.id, saved.merchantName))) return;
+    if (saved.propagate) await this.assignLike(saved.id);
     else void this.ledger.load();
   }
 
   /** Rinomina l'esercente del movimento, oppure lo crea (o lo trova per nome) e collega il nome grezzo. */
-  private async nameMerchant(tx: Transaction, name: string): Promise<boolean> {
-    if (tx.merchant_id) {
+  private async nameMerchant(tx: Transaction | undefined, id: string, name: string): Promise<boolean> {
+    if (tx?.merchant_id) {
       const res = await supabase.from('merchants').update({ name }).eq('id', tx.merchant_id);
       if (res.error) {
         this.snackBar.open(res.error.code === '23505' ? 'Esiste già un esercente con questo nome' : 'Nome non salvato: ' + errorText(res), 'OK');
       }
       return !res.error;
     }
-    const key = await supabase.rpc('merchant_key', { p_raw: tx.merchant_raw ?? '' });
+    // Inserito a mano: non c'è un nome della banca da collegare, l'esercente nasce da qui.
+    if (!tx?.merchant_raw) {
+      const created = await supabase.from('merchants').insert({ name }).select('id').single();
+      const res = created.error ? created : await supabase.from('transactions').update({ merchant_id: created.data.id }).eq('id', id);
+      if (res.error) this.snackBar.open('Esercente non salvato: ' + errorText(res), 'OK');
+      return !res.error;
+    }
+    const key = await supabase.rpc('merchant_key', { p_raw: tx.merchant_raw });
     const res = key.error ? key : await supabase.rpc('link_alias', { p_pattern: key.data ?? '', p_contains: false, p_name: name });
     if (res.error) {
       this.snackBar.open('Esercente non salvato: ' + errorText(res), 'OK');
