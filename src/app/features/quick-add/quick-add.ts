@@ -3,7 +3,7 @@ import { FormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MAT_BOTTOM_SHEET_DATA, MatBottomSheet, MatBottomSheetRef } from '@angular/material/bottom-sheet';
 import { MatSnackBar } from '@angular/material/snack-bar';
-import { Ledger, todayIso } from '../../core/ledger';
+import { defaultDate, lastDay, Ledger, monthLabel, shiftMonth, todayIso } from '../../core/ledger';
 import { centsToInput, parseAmount } from '../../core/money';
 import { onlineSignal } from '../../core/online';
 import { PendingOp } from '../../core/queue';
@@ -28,6 +28,7 @@ function editable(t: Transaction): Record<string, unknown> {
 }
 
 type LineChoice = Pick<MonthLine, 'id' | 'name' | 'bucket_id' | 'sort_order'>;
+type TwinCandidate = Pick<Transaction, 'source' | 'account_id' | 'amount_cents' | 'booking_date' | 'merchant_raw'>;
 
 @Component({
   selector: 'app-quick-add',
@@ -56,6 +57,11 @@ type LineChoice = Pick<MonthLine, 'id' | 'name' | 'bucket_id' | 'sort_order'>;
         <span aria-hidden="true">€</span>
       </label>
 
+      <div class="date">
+        <label>Data <input type="date" name="date" required [ngModel]="date()" (ngModelChange)="date.set($event)" /></label>
+        <button mat-stroked-button type="button" (click)="goToPreviousMonth()">← {{ previousMonthLabel() }}</button>
+      </div>
+
       @if (hasMerchant) {
         <label class="merchant">
           Esercente
@@ -82,7 +88,7 @@ type LineChoice = Pick<MonthLine, 'id' | 'name' | 'bucket_id' | 'sort_order'>;
           }
         </div>
       } @empty {
-        <p class="hint">{{ linesLoading() ? 'Carico le righe del mese…' : 'Nessuna riga in questo mese: creane una qui sotto.' }}</p>
+        <p class="hint">{{ linesLoading() ? 'Carico le righe del mese…' : online() ? 'Nessuna riga in questo mese: creane una qui sotto.' : 'Sei offline: per ora il movimento resta da assegnare.' }}</p>
       }
       <div class="chips">
         <button type="button" [attr.aria-expanded]="creating()" (click)="creating.set(!creating())">+ Nuova riga</button>
@@ -131,7 +137,6 @@ type LineChoice = Pick<MonthLine, 'id' | 'name' | 'bucket_id' | 'sort_order'>;
             }
           </select>
         </label>
-        <label>Data <input type="date" name="date" required [ngModel]="date()" (ngModelChange)="date.set($event)" /></label>
         <label>Nota <input name="note" autocomplete="off" [(ngModel)]="note" /></label>
         <label>
           Tag (separati da virgola)
@@ -152,7 +157,7 @@ type LineChoice = Pick<MonthLine, 'id' | 'name' | 'bucket_id' | 'sort_order'>;
         @if (tx) {
           <button mat-button type="button" (click)="remove()">Elimina</button>
         }
-        <button mat-flat-button type="submit" [disabled]="!amountCents() || !accountId">Salva</button>
+        <button mat-flat-button type="submit" [disabled]="!amountCents() || !accountId || !date()">Salva</button>
       </div>
     </form>
   `,
@@ -218,6 +223,16 @@ type LineChoice = Pick<MonthLine, 'id' | 'name' | 'bucket_id' | 'sort_order'>;
       border-radius: 12px;
       background: var(--mat-sys-surface-container);
     }
+    .date {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: flex-end;
+      gap: 8px;
+    }
+    .date button {
+      min-height: 44px;
+    }
+    .date label,
     .new-line label,
     details label,
     .merchant {
@@ -226,6 +241,7 @@ type LineChoice = Pick<MonthLine, 'id' | 'name' | 'bucket_id' | 'sort_order'>;
       margin-top: 12px;
       font: var(--mat-sys-label-large);
     }
+    .date label,
     .merchant,
     .new-line label {
       margin-top: 0;
@@ -235,6 +251,7 @@ type LineChoice = Pick<MonthLine, 'id' | 'name' | 'bucket_id' | 'sort_order'>;
       color: var(--mat-sys-on-surface-variant);
       overflow-wrap: anywhere;
     }
+    .date input,
     .merchant input,
     .new-line input,
     .new-line select,
@@ -288,7 +305,8 @@ export class QuickAdd {
   protected readonly amountText = signal('');
   protected readonly error = signal('');
   protected accountId = '';
-  protected readonly date = signal(todayIso());
+  // Un desiderio comprato è di oggi; il resto parte dal mese che stai guardando.
+  protected readonly date = signal(this.draft ? todayIso() : defaultDate(this.ledger.month()));
   protected note = '';
   protected tagsText = '';
   /** Nome scelto per l'esercente del movimento; si salva dopo l'invio (serve la connessione). */
@@ -300,12 +318,16 @@ export class QuickAdd {
   protected readonly activeAccounts = computed(() => this.ledger.accounts().filter((a) => !a.archived));
 
   /** Le righe del mese del movimento: quelle già caricate, o lette apposta se è un altro mese. */
-  private readonly lineMonth = computed(() => this.date().slice(0, 7) + '-01');
-  private readonly otherLines = signal<{ month: string; lines: LineChoice[] } | null>(null);
-  protected readonly lines = computed<LineChoice[]>(() =>
-    this.lineMonth() === this.ledger.month() ? this.ledger.lines() : this.otherLines()?.month === this.lineMonth() ? this.otherLines()!.lines : [],
-  );
-  protected readonly linesLoading = computed(() => this.lineMonth() !== this.ledger.month() && this.otherLines()?.month !== this.lineMonth());
+  private readonly lineMonth = computed(() => (this.date() || todayIso()).slice(0, 7) + '-01');
+  private readonly otherMonth = signal<{ month: string; lines: LineChoice[]; rows: TwinCandidate[] } | null>(null);
+  /** I dati letti apposta, se il movimento è in un mese diverso da quello caricato. */
+  private readonly other = computed(() => {
+    const o = this.otherMonth();
+    return this.lineMonth() !== this.ledger.month() && o?.month === this.lineMonth() ? o : null;
+  });
+  protected readonly lines = computed<LineChoice[]>(() => (this.lineMonth() === this.ledger.month() ? this.ledger.lines() : (this.other()?.lines ?? [])));
+  protected readonly linesLoading = computed(() => this.lineMonth() !== this.ledger.month() && !this.other());
+  protected readonly previousMonthLabel = computed(() => monthLabel(shiftMonth(this.lineMonth(), -1)));
 
   /** La riga scelta; cambiando mese si ritrova per nome, come fa il database. */
   private readonly picked = signal<LineChoice | null>(null);
@@ -371,8 +393,18 @@ export class QuickAdd {
   private async loadLines(month: string): Promise<void> {
     // Un mese ancora vuoto prende le righe del precedente, come quando lo apri.
     if (this.online()) await supabase.rpc('ensure_month_lines', { p_month: month });
-    const res = await supabase.from('budget_lines').select('id, name, bucket_id, sort_order').eq('month', month).order('sort_order').order('name');
-    if (res.data) this.otherLines.set({ month, lines: res.data });
+    const [lines, rows] = await Promise.all([
+      supabase.from('budget_lines').select('id, name, bucket_id, sort_order').eq('month', month).order('sort_order').order('name'),
+      // Per l'avviso "sembra già registrata", che deve valere anche nei mesi non aperti.
+      supabase.from('transactions').select('source, account_id, amount_cents, booking_date, merchant_raw').eq('month', month),
+    ]);
+    // Si scrive anche se vuoto: offline il caricamento deve finire comunque.
+    this.otherMonth.set({ month, lines: lines.data ?? [], rows: rows.data ?? [] });
+  }
+
+  /** Ultimo giorno del mese prima: premuto di nuovo, torna ancora indietro. */
+  protected goToPreviousMonth(): void {
+    this.date.set(lastDay(shiftMonth(this.lineMonth(), -1)));
   }
 
   protected setIncome(value: boolean): void {
@@ -411,12 +443,12 @@ export class QuickAdd {
 
   protected save(): void {
     const cents = this.amountCents();
-    if (!cents || !this.accountId) return;
+    if (!cents || !this.accountId || !this.date()) return;
     const signed = this.income() ? cents : -cents;
     if (!this.tx) {
       // Una spesa già arrivata da una notifica non va registrata di nuovo senza volerlo.
-      const twin = this.ledger
-        .transactions()
+      const candidates: TwinCandidate[] = this.other()?.rows ?? this.ledger.transactions();
+      const twin = candidates
         .find(
           (t) =>
             t.source !== 'manual' &&
@@ -482,7 +514,8 @@ export class QuickAdd {
     // correggerne uno già assegnato resta un'eccezione.
     const propagate = this.hasMerchant && !this.tx?.line_id && !!row.line_id;
     const name = this.merchantName.trim();
-    this.ref.dismiss({ id, undo, propagate, merchantName: name && name !== this.initialMerchantName ? name : null });
+    const otherMonth = this.lineMonth() !== this.ledger.month() ? this.lineMonth() : undefined;
+    this.ref.dismiss({ id, undo, propagate, merchantName: name && name !== this.initialMerchantName ? name : null, otherMonth });
   }
 
   protected remove(): void {
@@ -511,6 +544,8 @@ interface Saved {
   propagate: boolean;
   /** Nome dell'esercente scritto nel movimento, se cambiato. */
   merchantName: string | null;
+  /** Salvato in un mese diverso da quello aperto: non si vede nella lista, quindi lo si dice. */
+  otherMonth?: string;
 }
 
 /** Risultato di assign_like: serve anche così com'è per undo_assign_like. */
@@ -546,7 +581,7 @@ export class QuickAddLauncher {
       .afterDismissed()
       .subscribe((saved) => {
         if (!saved) return;
-        this.confirm(tx ? 'Salvato' : 'Aggiunto', saved.undo);
+        this.confirm((tx ? 'Salvato' : 'Aggiunto') + (saved.otherMonth ? ` in ${monthLabel(saved.otherMonth)}` : ''), saved.undo);
         if (tx && (saved.propagate || saved.merchantName)) void this.afterSave(tx, saved);
         onSaved?.(saved.id);
       });

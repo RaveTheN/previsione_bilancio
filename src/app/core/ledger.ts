@@ -20,6 +20,17 @@ export function shiftMonth(month: string, delta: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+/** Ultimo giorno del mese che inizia in `month`. */
+export function lastDay(month: string): string {
+  const [y, m] = month.split('-').map(Number);
+  return new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
+}
+
+/** Data proposta per un movimento nuovo: oggi, oppure l'ultimo giorno se stai guardando un mese passato. */
+export function defaultDate(month: string, today = todayIso()): string {
+  return lastDay(month) < today ? lastDay(month) : today;
+}
+
 export function monthLabel(month: string): string {
   const label = new Date(month + 'T12:00:00').toLocaleDateString('it-IT', { month: 'long', year: 'numeric' });
   return label.charAt(0).toUpperCase() + label.slice(1);
