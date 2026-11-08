@@ -29,6 +29,14 @@ interface Group {
   actual: number;
 }
 
+/**
+ * Somma le percentuali previste come le vede l'utente (già arrotondate a un decimale dal server):
+ * si conta in decimi interi per non far scattare il rosso su un errore di virgola mobile.
+ */
+export function overPlanned(buckets: Pick<MonthOverview['buckets'][number], 'forecast_pct'>[]): boolean {
+  return buckets.reduce((s, b) => s + Math.round((b.forecast_pct ?? 0) * 10), 0) > 1000;
+}
+
 const percent = new Intl.NumberFormat('it-IT', { style: 'percent', maximumFractionDigits: 1 });
 
 @Component({
@@ -169,7 +177,12 @@ const percent = new Intl.NumberFormat('it-IT', { style: 'percent', maximumFracti
                       <span class="sub">Previsto</span>
                       {{ fmt(g.forecast) }}
                       @if (g.stat) {
-                        <span class="sub">{{ pct(g.stat.forecast_pct) }}</span>
+                        <span
+                          class="sub"
+                          [class.worse]="overPlanned()"
+                          [attr.title]="overPlanned() ? 'I secchi insieme superano il 100% delle entrate previste' : null"
+                          >{{ pct(g.stat.forecast_pct) }}</span
+                        >
                       }
                     </td>
                     @if (!future()) {
@@ -574,6 +587,9 @@ export class Month {
     // I secchi restano anche vuoti, come nel foglio: servono per lasciarci una riga trascinata.
     return all.some((g) => g.rows.length) ? all.filter((g) => g.bucketId || g.rows.length) : [];
   });
+
+  /** Il previsto di tutti i secchi supera le entrate previste: si segna in rosso in ogni secchio. */
+  protected readonly overPlanned = computed(() => overPlanned(this.ov()?.buckets ?? []));
 
   protected readonly total = computed(() => {
     const o = this.ov();
