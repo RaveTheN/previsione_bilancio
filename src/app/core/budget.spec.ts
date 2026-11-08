@@ -6,6 +6,7 @@ const line = (id: string, bucket_id: string | null, forecast: number, actual: nu
   name: id,
   bucket_id,
   sort_order: 0,
+  over_is_good: false,
   forecast,
   actual,
   n: 1,
@@ -41,6 +42,10 @@ describe('quanto resta di un secchio', () => {
 describe('previsione nei campi', () => {
   it('le righe senza secchio sono entrate', () => {
     expect([lineKind(null), lineKind('fun')]).toEqual(['income', 'expense']);
+  });
+
+  it('superare il previsto è un bene solo sulle righe dei secchi che lo scelgono', () => {
+    expect([lineKind('fm', true), lineKind(null, true)]).toEqual(['saving', 'income']);
   });
 
   it.each([

@@ -67,14 +67,14 @@ export type Database = {
                   ]
                 },"budget_lines": {
                   Row: {
-                    "amount_cents": number,"bucket_id": string | null,"created_at": string,"id": string,"month": string,"name": string,"sort_order": number,"user_id": string
+                    "amount_cents": number,"bucket_id": string | null,"created_at": string,"id": string,"month": string,"name": string,"over_is_good": boolean,"sort_order": number,"user_id": string
                   }
                   ComputedFields: never
                   Insert: {
-                    "amount_cents": number,"bucket_id"?: string | null,"created_at"?: string,"id"?: string,"month": string,"name": string,"sort_order"?: number,"user_id"?: string
+                    "amount_cents": number,"bucket_id"?: string | null,"created_at"?: string,"id"?: string,"month": string,"name": string,"over_is_good"?: boolean,"sort_order"?: number,"user_id"?: string
                   }
                   Update: {
-                    "amount_cents"?: number,"bucket_id"?: string | null,"created_at"?: string,"id"?: string,"month"?: string,"name"?: string,"sort_order"?: number,"user_id"?: string
+                    "amount_cents"?: number,"bucket_id"?: string | null,"created_at"?: string,"id"?: string,"month"?: string,"name"?: string,"over_is_good"?: boolean,"sort_order"?: number,"user_id"?: string
                   }
                   Relationships: [
                     {

@@ -140,78 +140,83 @@ const percent = new Intl.NumberFormat('it-IT', { style: 'percent', maximumFracti
 
       <fieldset [disabled]="!online() || busy()">
         @if (groups().length) {
-          <table class="grid" cdkDropListGroup>
-            <thead>
-              <tr>
-                <td></td>
-                <th scope="col">Previsto</th>
-                @if (!future()) {
-                  <th scope="col">Effettivo</th>
-                }
-              </tr>
-            </thead>
+          <!-- Un riquadro per secchio: dove finisce il riquadro, finisce il secchio. -->
+          <div class="buckets" cdkDropListGroup>
             @for (g of groups(); track g.title) {
-              <!-- Le righe si trascinano tra i secchi; le entrate non hanno secchio. -->
-              <tbody
-                cdkDropList
-                [cdkDropListData]="g"
-                [cdkDropListDisabled]="!g.bucketId || !online()"
-                (cdkDropListDropped)="drop($event)"
-              >
-                <tr class="group">
-                  <th scope="rowgroup">
-                    {{ g.title }}
-                    @if (g.stat) {
-                      <span class="sub">obiettivo {{ pct(g.stat.target_pct) }}</span>
-                    }
-                  </th>
-                  <td>
-                    {{ fmt(g.forecast) }}
-                    @if (g.stat) {
-                      <span class="sub">{{ pct(g.stat.forecast_pct) }}</span>
-                    }
-                  </td>
+              <table class="grid" [attr.aria-label]="g.title">
+                <colgroup>
+                  <col />
+                  <col class="forecast" />
                   @if (!future()) {
-                    <td>
-                      {{ fmt(g.actual) }}
-                      @if (g.stat) {
-                        <span class="sub">{{ pct(g.stat.actual_pct) }}</span>
-                      }
-                    </td>
+                    <col class="actual" />
                   }
-                </tr>
-                @for (r of g.rows; track r.id) {
-                  <tr cdkDrag cdkDragLockAxis="y" [cdkDragData]="r" [cdkDragDisabled]="!g.bucketId || !online()">
-                    <th scope="row">
-                      @if (g.bucketId) {
-                        <!-- Solo la maniglia trascina: il resto della riga si tocca e scorre normalmente. -->
-                        <span class="handle" cdkDragHandle [attr.title]="'Trascina ' + r.name + ' in un altro secchio'">
-                          <svg viewBox="0 -960 960 960" aria-hidden="true"><path [attr.d]="dragIcon" /></svg>
-                        </span>
+                </colgroup>
+                <!-- Le righe si trascinano tra i secchi; le entrate non hanno secchio. -->
+                <tbody
+                  cdkDropList
+                  [cdkDropListData]="g"
+                  [cdkDropListDisabled]="!g.bucketId || !online()"
+                  (cdkDropListDropped)="drop($event)"
+                >
+                  <tr class="group">
+                    <th scope="rowgroup">
+                      {{ g.title }}
+                      @if (g.stat) {
+                        <span class="sub">obiettivo {{ pct(g.stat.target_pct) }}</span>
                       }
-                      <button type="button" class="name" [matMenuTriggerFor]="rowMenu" [matMenuTriggerData]="{ r }">
-                        {{ r.name }} <span aria-hidden="true">▾</span>
-                      </button>
                     </th>
                     <td>
-                      <input
-                        inputmode="decimal"
-                        autocomplete="off"
-                        [attr.aria-label]="'Previsione ' + r.name + ' · ' + g.title"
-                        [value]="forecastText(r)"
-                        placeholder="—"
-                        (change)="setForecast(r, $event)"
-                      />
+                      <span class="sub">Previsto</span>
+                      {{ fmt(g.forecast) }}
+                      @if (g.stat) {
+                        <span class="sub">{{ pct(g.stat.forecast_pct) }}</span>
+                      }
                     </td>
                     @if (!future()) {
-                      <!-- Mai solo il colore: la freccia dice se è meglio o peggio del previsto. -->
-                      <td [class]="tone(r)">{{ fmt(r.actual) }}{{ arrow(r) }}</td>
+                      <td>
+                        <span class="sub">Effettivo</span>
+                        {{ fmt(g.actual) }}
+                        @if (g.stat) {
+                          <span class="sub">{{ pct(g.stat.actual_pct) }}</span>
+                        }
+                      </td>
                     }
                   </tr>
-                }
-              </tbody>
+                  @for (r of g.rows; track r.id) {
+                    <tr cdkDrag cdkDragLockAxis="y" [cdkDragData]="r" [cdkDragDisabled]="!g.bucketId || !online()">
+                      <th scope="row">
+                        <div class="row-name">
+                          @if (g.bucketId) {
+                            <!-- Solo la maniglia trascina: il resto della riga si tocca e scorre normalmente. -->
+                            <span class="handle" cdkDragHandle [attr.title]="'Trascina ' + r.name + ' in un altro secchio'">
+                              <svg viewBox="0 -960 960 960" aria-hidden="true"><path [attr.d]="dragIcon" /></svg>
+                            </span>
+                          }
+                          <button type="button" class="name" [matMenuTriggerFor]="rowMenu" [matMenuTriggerData]="{ r }">
+                            {{ r.name }} <span aria-hidden="true">▾</span>
+                          </button>
+                        </div>
+                      </th>
+                      <td>
+                        <input
+                          inputmode="decimal"
+                          autocomplete="off"
+                          [attr.aria-label]="'Previsione ' + r.name + ' · ' + g.title"
+                          [value]="forecastText(r)"
+                          placeholder="—"
+                          (change)="setForecast(r, $event)"
+                        />
+                      </td>
+                      @if (!future()) {
+                        <!-- Mai solo il colore: la freccia dice se è meglio o peggio del previsto. -->
+                        <td [class]="tone(r)">{{ fmt(r.actual) }}{{ arrow(r) }}</td>
+                      }
+                    </tr>
+                  }
+                </tbody>
+              </table>
             }
-          </table>
+          </div>
           <mat-menu #rowMenu="matMenu">
             <ng-template matMenuContent let-r="r">
               <button mat-menu-item type="button" (click)="renameRow(r)">Rinomina</button>
@@ -241,6 +246,12 @@ const percent = new Intl.NumberFormat('it-IT', { style: 'percent', maximumFracti
               <option value="entrate">Entrate</option>
             </select>
             <input name="amount" inputmode="decimal" autocomplete="off" placeholder="0,00" aria-label="Importo" [(ngModel)]="newAmount" />
+            @if (newBucket !== 'entrate') {
+              <label class="check">
+                <input type="checkbox" name="overGood" [(ngModel)]="newOverGood" />
+                Superare il previsto è un bene (verde, come il risparmio)
+              </label>
+            }
             <button mat-stroked-button type="submit">Aggiungi</button>
           </form>
         </details>
@@ -322,24 +333,56 @@ const percent = new Intl.NumberFormat('it-IT', { style: 'percent', maximumFracti
       color: var(--mat-sys-on-surface-variant);
     }
     /* La tabella delle voci, come nel foglio: voce, previsto (si scrive nella cella), effettivo. */
+    .buckets {
+      display: grid;
+      gap: 16px;
+    }
+    /* Colonne fisse: previsto ed effettivo restano in fila da un riquadro all'altro. */
+    .grid {
+      table-layout: fixed;
+      border-radius: 12px;
+      background: var(--mat-sys-surface-container);
+    }
+    .grid col.forecast {
+      width: 96px;
+    }
+    .grid col.actual {
+      width: 108px;
+    }
+    .row-name {
+      display: flex;
+      align-items: center;
+    }
+    .row-name .handle {
+      flex: none;
+    }
     .grid th,
     .grid td {
-      padding: 2px 0 2px 8px;
+      padding: 2px 8px 2px 8px;
       vertical-align: middle;
+    }
+    .grid td:not(:last-child) {
+      padding-right: 0;
     }
     .grid th[scope='row'],
     .grid th[scope='rowgroup'] {
-      padding-left: 0;
       text-align: left;
       white-space: normal;
     }
-    .grid tr:not(.group) {
+    .grid tr:not(.group):not(:last-child) {
       border-bottom: 1px solid var(--mat-sys-outline-variant);
     }
+    .grid .group:not(:last-child) {
+      border-bottom: 2px solid var(--mat-sys-primary);
+    }
     .grid .group > * {
-      padding-top: 16px;
-      vertical-align: bottom;
+      padding-top: 10px;
+      padding-bottom: 8px;
+      vertical-align: top;
       font: var(--mat-sys-title-small);
+    }
+    .grid .group th {
+      font: var(--mat-sys-title-medium);
     }
     .handle {
       display: inline-grid;
@@ -403,10 +446,10 @@ const percent = new Intl.NumberFormat('it-IT', { style: 'percent', maximumFracti
     }
     .grid input {
       box-sizing: border-box;
-      width: 6.5em;
+      width: 100%;
       min-height: 40px;
       border-color: transparent;
-      background: var(--mat-sys-surface-container-high);
+      background: var(--mat-sys-surface);
       font: var(--mat-sys-body-medium);
       text-align: right;
     }
@@ -468,6 +511,15 @@ const percent = new Intl.NumberFormat('it-IT', { style: 'percent', maximumFracti
       display: grid;
       gap: 4px;
     }
+    .tool .check {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 44px;
+    }
+    .tool .check input {
+      min-height: 0;
+    }
     .tool button {
       justify-self: end;
       min-height: 44px;
@@ -497,6 +549,7 @@ export class Month {
   protected newName = '';
   protected newBucket = '';
   protected newAmount = '';
+  protected newOverGood = false;
   protected copyUntil = '';
 
   /** Maniglia: sei puntini, due colonne per tre righe. */
@@ -507,7 +560,7 @@ export class Month {
   private readonly rows = computed<Row[]>(() => {
     const m = this.moving();
     const lines = this.ledger.lines();
-    return (m ? moveLine(lines, m.id, m.to) : lines).map((l) => ({ ...l, kind: lineKind(l.bucket_id) }));
+    return (m ? moveLine(lines, m.id, m.to) : lines).map((l) => ({ ...l, kind: lineKind(l.bucket_id, l.over_is_good) }));
   });
 
   /** Entrate, poi un gruppo per secchio, con le righe nell'ordine scritto. */
@@ -572,7 +625,7 @@ export class Month {
       return;
     }
     const order = Math.max(0, ...this.rows().map((r) => r.sort_order)) + 1;
-    const res = await addLine(this.ledger.month(), name, bucketId, amount ?? 0, order);
+    const res = await addLine(this.ledger.month(), name, bucketId, amount ?? 0, order, !!bucketId && this.newOverGood);
     if (res.error?.message.includes('budget_lines_name_uq')) {
       this.snackBar.open(`C'è già una riga ${name} in questo mese`, 'OK', { duration: 4000 });
       return;
@@ -580,6 +633,7 @@ export class Month {
     if (this.done(res, 'Riga non aggiunta')) {
       this.newName = '';
       this.newAmount = '';
+      this.newOverGood = false;
     }
   }
 
@@ -593,7 +647,7 @@ export class Month {
   protected async copy(): Promise<void> {
     const from = this.ledger.month();
     const until = this.copyUntil;
-    const lines = this.rows().map((r) => ({ name: r.name, bucket_id: r.bucket_id, forecast: r.forecast, sort_order: r.sort_order }));
+    const lines = this.rows().map((r) => ({ name: r.name, bucket_id: r.bucket_id, forecast: r.forecast, sort_order: r.sort_order, over_is_good: r.over_is_good }));
     if (!until || until <= from) return;
     if (!lines.length) {
       this.snackBar.open('Questo mese non ha righe da copiare', 'OK', { duration: 4000 });

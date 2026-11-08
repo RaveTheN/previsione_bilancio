@@ -66,7 +66,7 @@ export function pivotYear(months: MonthOverview[], buckets: Bucket[]): YearPivot
       const key = `${line.bucket_id}/${line.name.toLowerCase()}`;
       let row = rows.get(key);
       if (!row) {
-        row = { key, label: line.name, kind: lineKind(line.bucket_id), bucketId: line.bucket_id, editable: true, cells: months.map(empty), total: empty(), order: line.sort_order };
+        row = { key, label: line.name, kind: lineKind(line.bucket_id, line.over_is_good), bucketId: line.bucket_id, editable: true, cells: months.map(empty), total: empty(), order: line.sort_order };
         rows.set(key, row);
       }
       row.cells[i] = { forecast: line.forecast, actual: line.actual };

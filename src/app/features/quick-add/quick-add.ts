@@ -140,6 +140,12 @@ type TwinCandidate = Pick<Transaction, 'source' | 'account_id' | 'amount_cents' 
               <option value="">Entrate</option>
             </select>
           </label>
+          @if (newLineBucket) {
+            <label class="check">
+              <input type="checkbox" name="newOverGood" [(ngModel)]="newLineOverGood" />
+              Superare il previsto è un bene (verde, come il risparmio)
+            </label>
+          }
           @if (!online()) {
             <span class="hint">Per creare una riga serve la connessione.</span>
           }
@@ -265,6 +271,13 @@ type TwinCandidate = Pick<Transaction, 'source' | 'account_id' | 'amount_cents' 
       margin-top: 12px;
       font: var(--mat-sys-label-large);
     }
+    .new-line .check {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 44px;
+      margin-top: 0;
+    }
     .date label,
     .merchant,
     .new-line label {
@@ -384,6 +397,7 @@ export class QuickAdd {
   protected readonly missingLine = computed(() => (this.picked() && !this.line() && !this.linesLoading() && !this.creatingBusy() ? this.picked()!.name : null));
   protected newLineName = '';
   protected newLineBucket = this.draft?.bucketId ?? '';
+  protected newLineOverGood = false;
 
   constructor() {
     const t = this.tx;
@@ -495,7 +509,7 @@ export class QuickAdd {
       const order = Math.max(0, ...this.lines().map((l) => l.sort_order)) + 1;
       const res = await supabase
         .from('budget_lines')
-        .insert({ month, name, bucket_id: this.newLineBucket || null, amount_cents: 0, sort_order: order })
+        .insert({ month, name, bucket_id: this.newLineBucket || null, amount_cents: 0, sort_order: order, over_is_good: !!this.newLineBucket && this.newLineOverGood })
         .select('id, name, bucket_id, sort_order')
         .single();
       if (res.error) {
@@ -505,6 +519,7 @@ export class QuickAdd {
       await (month === this.ledger.month() ? this.ledger.load() : this.loadLines(month));
       this.error.set('');
       this.newLineName = '';
+      this.newLineOverGood = false;
       this.creating.set(false);
       this.picked.set(res.data);
       this.created = { id: res.data.id, month };

@@ -4,9 +4,9 @@ import { MonthLine, supabase } from './supabase';
 
 type Result = { error: { message: string } | null; status: number };
 
-/** Verso di una riga: le entrate (senza secchio) positive, le righe dei secchi negative. */
-export function lineKind(bucketId: string | null): 'income' | 'expense' {
-  return bucketId ? 'expense' : 'income';
+/** Verso di una riga: le entrate (senza secchio) positive, le righe dei secchi negative. Con 'saving' superare il previsto è un bene. */
+export function lineKind(bucketId: string | null, overIsGood = false): 'income' | 'expense' | 'saving' {
+  return !bucketId ? 'income' : overIsGood ? 'saving' : 'expense';
 }
 
 export function kindSign(kind: string): number {
@@ -45,8 +45,8 @@ export function inputToForecast(text: string, kind: string): number | null | und
   return explicit ? cents : cents * kindSign(kind) || 0;
 }
 
-export async function addLine(month: string, name: string, bucketId: string | null, amount: number, sortOrder: number): Promise<Result> {
-  return await supabase.from('budget_lines').insert({ month, name: name.trim(), bucket_id: bucketId, amount_cents: amount, sort_order: sortOrder });
+export async function addLine(month: string, name: string, bucketId: string | null, amount: number, sortOrder: number, overIsGood: boolean): Promise<Result> {
+  return await supabase.from('budget_lines').insert({ month, name: name.trim(), bucket_id: bucketId, amount_cents: amount, sort_order: sortOrder, over_is_good: overIsGood });
 }
 
 /** Rinomina, sposta di secchio o cambia il previsto di una riga: i suoi movimenti la seguono. */
@@ -63,11 +63,11 @@ export async function deleteLine(id: string): Promise<Result> {
  * Scrive il previsto della riga con quel nome nel mese (dalla griglia annuale): la crea se manca;
  * con null la azzera senza crearla. Un mese vuoto prima copia le righe del mese precedente.
  */
-export async function writeByName(month: string, name: string, bucketId: string | null, amount: number | null): Promise<Result> {
+export async function writeByName(month: string, name: string, bucketId: string | null, amount: number | null, overIsGood: boolean): Promise<Result> {
   const ensured = await supabase.rpc('ensure_month_lines', { p_month: month });
   if (ensured.error) return ensured;
   if (amount === null) return await supabase.from('budget_lines').update({ amount_cents: 0 }).eq('month', month).eq('name', name);
-  const row = { month, name, bucket_id: bucketId, amount_cents: amount };
+  const row = { month, name, bucket_id: bucketId, amount_cents: amount, over_is_good: overIsGood };
   return await supabase.from('budget_lines').upsert(row, { onConflict: 'user_id,month,name' });
 }
 
@@ -76,6 +76,7 @@ export interface ForecastLine {
   bucket_id: string | null;
   forecast: number;
   sort_order: number;
+  over_is_good: boolean;
 }
 
 /**
@@ -99,7 +100,7 @@ export async function copyForecast(from: string, until: string, lines: ForecastL
     if (ensured.error) return ensured;
   }
   const rows = months.flatMap((month) =>
-    lines.map((l) => ({ month, name: l.name, bucket_id: l.bucket_id, amount_cents: l.forecast, sort_order: l.sort_order })),
+    lines.map((l) => ({ month, name: l.name, bucket_id: l.bucket_id, amount_cents: l.forecast, sort_order: l.sort_order, over_is_good: l.over_is_good })),
   );
   return await supabase.from('budget_lines').upsert(rows, { onConflict: 'user_id,month,name' });
 }

@@ -11,6 +11,7 @@ const line = (name: string, bucket_id: string | null, forecast: number, actual: 
   name,
   bucket_id,
   sort_order,
+  over_is_good: name === 'Risparmio',
   forecast,
   actual,
   n: 1,
@@ -54,6 +55,10 @@ describe('pivotYear', () => {
       ['Future me', ['Risparmio', 'Spesa']],
       ['Fun', ['Spesa']],
     ]);
+  });
+
+  it('una riga in cui superare il previsto è un bene si colora come il risparmio', () => {
+    expect(pivot.groups[1].rows.map((r) => r.kind)).toEqual(['saving', 'expense']);
   });
 
   it('mette le celle al mese giusto e somma l\'anno', () => {

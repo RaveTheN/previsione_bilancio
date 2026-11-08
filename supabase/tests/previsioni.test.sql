@@ -138,7 +138,7 @@ select is(
   (select l - 'id' from public.month_overview('2026-11-01', '2027-01-15') o, jsonb_array_elements(o -> 'lines') l
     where l ->> 'name' = 'Risparmio'),
   '{"name": "Risparmio", "bucket_id": "20000000-0000-0000-0000-000000000001", "sort_order": 0,
-    "forecast": -30000, "actual": -25000, "n": 1}'::jsonb,
+    "over_is_good": true, "forecast": -30000, "actual": -25000, "n": 1}'::jsonb,
   'la riga Risparmio: previsto scritto, l''accantonamento conta una volta'
 );
 

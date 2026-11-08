@@ -32,6 +32,8 @@ export interface MonthLine {
   name: string;
   bucket_id: string | null;
   sort_order: number;
+  /** Superare il previsto è un bene: sempre vero per la riga Risparmio. */
+  over_is_good: boolean;
   forecast: number;
   /** Somma con segno dei movimenti assegnati: i rimborsi compensano le spese. */
   actual: number;

@@ -11,6 +11,7 @@ const line = (name: string, bucket_id: string | null, forecast: number, actual: 
   name,
   bucket_id,
   sort_order: 0,
+  over_is_good: false,
   forecast,
   actual,
   n: 1,

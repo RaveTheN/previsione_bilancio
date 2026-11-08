@@ -1,7 +1,7 @@
 -- Righe del mese: copia automatica, movimenti che cambiano mese, eliminazione. Dati finti.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(8);
+select plan(11);
 
 insert into auth.users (id, email) values
   ('00000000-0000-0000-0000-00000000000a', 'a@example.com'),
@@ -73,6 +73,24 @@ select is(
     where l ->> 'name' = 'Luce' and l ->> 'bucket_id' = '20000000-0000-0000-0000-000000000002'),
   '-12000',
   'spostata in Fun, la riga si porta dietro i suoi movimenti'
+);
+
+-- Superare il previsto è un bene: per scelta o perché la riga è il Risparmio.
+insert into public.budget_lines (month, name, bucket_id, amount_cents, over_is_good) values
+  ('2027-03-01', 'Fondo viaggi', '20000000-0000-0000-0000-000000000001', -1000, true),
+  ('2027-03-01', 'risparmio', '20000000-0000-0000-0000-000000000001', -1000, false),
+  ('2027-03-01', 'Palestra', '20000000-0000-0000-0000-000000000001', -1000, false);
+select results_eq(
+  $$ select l ->> 'name', (l ->> 'over_is_good')::boolean
+     from jsonb_array_elements(public.month_overview('2027-03-01') -> 'lines') l order by 1 $$,
+  $$ values ('Fondo viaggi', true), ('Palestra', false), ('risparmio', true) $$,
+  'superare il previsto è un bene se scelto, e sempre sul Risparmio'
+);
+select is(public.ensure_month_lines('2027-04-01'), 3, 'aprile copia le righe di marzo');
+select is(
+  (select over_is_good from public.budget_lines where month = '2027-04-01' and name = 'Fondo viaggi'),
+  true,
+  'la scelta passa al mese copiato'
 );
 
 select * from finish();

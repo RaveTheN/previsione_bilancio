@@ -676,7 +676,7 @@ export class Year {
       this.snackBar.open('Importo non valido', 'OK', { duration: 4000 });
       return;
     }
-    this.done(await writeByName(this.months()[month], row.label, row.bucketId, amount), 'Previsione non salvata');
+    this.done(await writeByName(this.months()[month], row.label, row.bucketId, amount, row.kind === 'saving'), 'Previsione non salvata');
   }
 
   protected async copyLine(row: GridRow, month: number): Promise<void> {
@@ -684,7 +684,7 @@ export class Year {
     if (!this.copyUntil || forecast === null) return;
     const until = this.copyUntil;
     const sortOrder = this.lineAt(row, month)?.sort_order ?? 0;
-    const res = await copyForecast(this.months()[month], until, [{ name: row.label, bucket_id: row.bucketId, forecast, sort_order: sortOrder }]);
+    const res = await copyForecast(this.months()[month], until, [{ name: row.label, bucket_id: row.bucketId, forecast, sort_order: sortOrder, over_is_good: row.kind === 'saving' }]);
     if (res !== 'cancelled' && this.done(res, 'Copia non riuscita')) {
       this.copyUntil = '';
       this.snackBar.open(`Previsione copiata fino a ${monthLabel(until)}`, 'OK', { duration: 4000 });
