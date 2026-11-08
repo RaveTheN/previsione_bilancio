@@ -78,7 +78,7 @@ type TwinCandidate = Pick<Transaction, 'source' | 'account_id' | 'amount_cents' 
       </label>
 
       <div class="date">
-        <label>Data <input type="date" name="date" required [ngModel]="date()" (ngModelChange)="date.set($event)" /></label>
+        <label>Data <input type="date" name="date" required [ngModel]="date()" (ngModelChange)="setDate($event)" /></label>
         <button mat-stroked-button type="button" (click)="goToPreviousMonth()">← {{ previousMonthLabel() }}</button>
       </div>
 
@@ -97,6 +97,7 @@ type TwinCandidate = Pick<Transaction, 'source' | 'account_id' | 'amount_cents' 
         </datalist>
       }
 
+      <p class="hint">Righe di {{ lineMonthLabel() }}</p>
       <!-- Le righe del mese del movimento: anche un'entrata può andare su una riga di spesa, come un rimborso. -->
       @for (g of lineGroups(); track g.title) {
         <div class="chips" role="group" [attr.aria-label]="g.title">
@@ -109,6 +110,9 @@ type TwinCandidate = Pick<Transaction, 'source' | 'account_id' | 'amount_cents' 
         </div>
       } @empty {
         <p class="hint">{{ linesLoading() ? 'Carico le righe del mese…' : online() ? 'Nessuna riga in questo mese: creane una qui sotto.' : 'Sei offline: per ora il movimento resta da assegnare.' }}</p>
+      }
+      @if (missingLine(); as name) {
+        <p class="hint" role="status">«{{ name }}» non c'è in {{ lineMonthLabel() }}: il movimento resterà da assegnare.</p>
       }
       <div class="chips">
         <button type="button" [attr.aria-expanded]="creating()" (click)="creating.set(!creating())">+ Nuova riga</button>
@@ -141,7 +145,7 @@ type TwinCandidate = Pick<Transaction, 'source' | 'account_id' | 'amount_cents' 
           }
           <div class="actions">
             <button mat-stroked-button type="button" [disabled]="!online() || !newLineName.trim() || creatingBusy()" (click)="createLine()">
-              Crea e scegli
+              Crea in {{ lineMonthLabel() }} e scegli
             </button>
           </div>
         </div>
@@ -177,7 +181,7 @@ type TwinCandidate = Pick<Transaction, 'source' | 'account_id' | 'amount_cents' 
         @if (tx) {
           <button mat-button type="button" (click)="remove()">Elimina</button>
         }
-        <button mat-flat-button type="submit" [disabled]="!amountCents() || !accountId || !date()">Salva</button>
+        <button mat-flat-button type="submit" [disabled]="!amountCents() || !accountId || !date() || creatingBusy()">Salva</button>
       </div>
     </form>
   `,
@@ -348,6 +352,7 @@ export class QuickAdd {
   protected readonly lines = computed<LineChoice[]>(() => (this.lineMonth() === this.ledger.month() ? this.ledger.lines() : (this.other()?.lines ?? [])));
   protected readonly linesLoading = computed(() => this.lineMonth() !== this.ledger.month() && !this.other());
   protected readonly previousMonthLabel = computed(() => monthLabel(shiftMonth(this.lineMonth(), -1)));
+  protected readonly lineMonthLabel = computed(() => monthLabel(this.lineMonth()));
 
   /** La riga scelta; cambiando mese si ritrova per nome, come fa il database. */
   private readonly picked = signal<LineChoice | null>(null);
@@ -371,6 +376,12 @@ export class QuickAdd {
   protected readonly online = onlineSignal();
   protected readonly creating = signal(false);
   protected readonly creatingBusy = signal(false);
+  /** La riga creata da questa finestra, e il mese in cui si trova ora. */
+  private created: { id: string; month: string } | null = null;
+  /** Uno spostamento alla volta: due tocchi veloci su "mese prima" non si scavalcano. */
+  private moves = Promise.resolve();
+  /** La riga scelta non esiste nel mese della data: va detto, altrimenti la scelta sparisce in silenzio. */
+  protected readonly missingLine = computed(() => (this.picked() && !this.line() && !this.linesLoading() && !this.creatingBusy() ? this.picked()!.name : null));
   protected newLineName = '';
   protected newLineBucket = this.draft?.bucketId ?? '';
 
@@ -424,7 +435,39 @@ export class QuickAdd {
 
   /** Ultimo giorno del mese prima: premuto di nuovo, torna ancora indietro. */
   protected goToPreviousMonth(): void {
-    this.date.set(lastDay(shiftMonth(this.lineMonth(), -1)));
+    this.setDate(lastDay(shiftMonth(this.lineMonth(), -1)));
+  }
+
+  protected setDate(value: string): void {
+    this.date.set(value);
+    if (value) this.moves = this.moves.then(() => this.moveCreatedLine());
+  }
+
+  /** Una riga appena creata da qui segue la data: non ha movimenti, quindi spostarla è sicuro. */
+  private async moveCreatedLine(): Promise<void> {
+    const month = this.lineMonth();
+    const line = this.created;
+    if (!line || line.month === month || this.picked()?.id !== line.id) return;
+    this.creatingBusy.set(true);
+    try {
+      // Prima la copia: con la riga già dentro, un mese vuoto non prenderebbe più le altre.
+      await supabase.rpc('ensure_month_lines', { p_month: month });
+      const moved = await supabase.from('budget_lines').update({ month }).eq('id', line.id);
+      if (moved.error?.code === '23505') {
+        // In quel mese una riga con questo nome c'è già: la scelta passa a quella.
+        await supabase.from('budget_lines').delete().eq('id', line.id);
+        this.created = null;
+      } else if (moved.error) {
+        this.error.set('Riga non spostata: ' + errorText(moved));
+        return;
+      } else {
+        line.month = month;
+      }
+      await this.ledger.load();
+      if (month !== this.ledger.month()) await this.loadLines(month);
+    } finally {
+      this.creatingBusy.set(false);
+    }
   }
 
   protected setIncome(value: boolean): void {
@@ -447,25 +490,29 @@ export class QuickAdd {
     const name = this.newLineName.trim();
     if (!name || !this.online() || this.creatingBusy()) return;
     this.creatingBusy.set(true);
+    const month = this.lineMonth();
     try {
       const order = Math.max(0, ...this.lines().map((l) => l.sort_order)) + 1;
       const res = await supabase
         .from('budget_lines')
-        .insert({ month: this.lineMonth(), name, bucket_id: this.newLineBucket || null, amount_cents: 0, sort_order: order })
+        .insert({ month, name, bucket_id: this.newLineBucket || null, amount_cents: 0, sort_order: order })
         .select('id, name, bucket_id, sort_order')
         .single();
       if (res.error) {
         this.error.set(res.error.code === '23505' ? 'Esiste già una riga con questo nome nel mese' : 'Riga non creata: ' + errorText(res));
         return;
       }
-      await (this.lineMonth() === this.ledger.month() ? this.ledger.load() : this.loadLines(this.lineMonth()));
+      await (month === this.ledger.month() ? this.ledger.load() : this.loadLines(month));
       this.error.set('');
       this.newLineName = '';
       this.creating.set(false);
       this.picked.set(res.data);
+      this.created = { id: res.data.id, month };
     } finally {
       this.creatingBusy.set(false);
     }
+    // La data può essere cambiata mentre la riga veniva creata.
+    this.moves = this.moves.then(() => this.moveCreatedLine());
   }
 
   protected save(): void {
