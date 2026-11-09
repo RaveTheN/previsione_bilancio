@@ -73,17 +73,17 @@ function readDensity(): Density {
             <thead>
               <tr>
                 <th scope="col" class="corner" [attr.rowspan]="detailed() ? 2 : 1">Voce</th>
-                @for (m of months(); track m) {
-                  <th scope="col" [attr.colspan]="detailed() ? 3 : 1" [class.cur]="m === current">{{ short(m) }}</th>
+                @for (m of months(); track m; let i = $index) {
+                  <th scope="col" [attr.colspan]="detailed() ? 3 : 1" [class.cur]="m === current" [class.alt]="alt(i)">{{ short(m) }}</th>
                 }
                 <th scope="col" [attr.colspan]="detailed() ? 3 : 1">Anno</th>
               </tr>
               @if (detailed()) {
                 <tr class="sub">
-                  @for (m of columns; track $index) {
-                    <th scope="col"><abbr title="Previsto">P</abbr></th>
-                    <th scope="col"><abbr title="Effettivo">E</abbr></th>
-                    <th scope="col"><abbr title="Differenza">Δ</abbr></th>
+                  @for (m of columns; track $index; let i = $index) {
+                    <th scope="col" [class.alt]="alt(i)"><abbr title="Previsto">P</abbr></th>
+                    <th scope="col" [class.alt]="alt(i)"><abbr title="Effettivo">E</abbr></th>
+                    <th scope="col" [class.alt]="alt(i)"><abbr title="Differenza">Δ</abbr></th>
                   }
                 </tr>
               }
@@ -198,7 +198,7 @@ function readDensity(): Density {
     <ng-template #cells let-row let-kind="kind" let-selectable="selectable">
       @for (c of row.cells; track $index; let i = $index) {
         @if (detailed()) {
-          <td class="num" [class.cur]="i === currentIndex()">
+          <td class="num" [class.cur]="i === currentIndex()" [class.alt]="alt(i)">
             @if (row.editable) {
               <input
                 class="cell-input"
@@ -214,7 +214,7 @@ function readDensity(): Density {
               {{ amount(c.forecast) }}
             }
           </td>
-          <td class="num" [class.cur]="i === currentIndex()">
+          <td class="num" [class.cur]="i === currentIndex()" [class.alt]="alt(i)">
             @if (i > currentIndex()) {
             } @else if (selectable) {
               <button type="button" class="cell" [attr.aria-label]="row.label + ', ' + label(months()[i]) + ': dettaglio'" (click)="select(row.key, i)">
@@ -224,9 +224,9 @@ function readDensity(): Density {
               {{ amount(c.actual) }}
             }
           </td>
-          <td class="num delta" [class]="i <= currentIndex() ? tone(kind, c) : ''">{{ i <= currentIndex() ? delta(kind, c) : '' }}</td>
+          <td class="num delta" [class.alt]="alt(i)" [class]="i <= currentIndex() ? tone(kind, c) : ''">{{ i <= currentIndex() ? delta(kind, c) : '' }}</td>
         } @else {
-          <td class="num" [class.cur]="i === currentIndex()" [class.future]="i > currentIndex()" [class]="i <= currentIndex() ? tone(kind, c) : ''">
+          <td class="num" [class.cur]="i === currentIndex()" [class.alt]="alt(i)" [class.future]="i > currentIndex()" [class]="i <= currentIndex() ? tone(kind, c) : ''">
             @if (selectable) {
               <button type="button" class="cell" [attr.aria-label]="row.label + ', ' + label(months()[i]) + ': ' + compact(kind, c, i) + ', dettaglio'" (click)="select(row.key, i)">
                 {{ compact(kind, c, i) }}
@@ -383,6 +383,17 @@ function readDensity(): Density {
     }
     .cur {
       box-shadow: inset 0 0 0 9999px color-mix(in srgb, var(--mat-sys-primary) 6%, transparent);
+    }
+    /*
+     * Un mese sì e uno no un velo più scuro, per seguire la colonna fino in fondo. È un'immagine
+     * di sfondo, non un colore: si somma allo sfondo delle righe di gruppo e dei totali e resta
+     * sotto le evidenziazioni (mese corrente, scarti forti), che sono ombre interne.
+     */
+    .alt {
+      background-image: linear-gradient(
+        color-mix(in srgb, var(--mat-sys-on-surface) 5%, transparent),
+        color-mix(in srgb, var(--mat-sys-on-surface) 5%, transparent)
+      );
     }
     .year {
       font-weight: 600;
@@ -542,6 +553,10 @@ export class Year {
   protected readonly densities: Density[] = ['compatta', 'dettagliata'];
   /** 12 mesi più la colonna dell'anno, per la seconda riga d'intestazione. */
   protected readonly columns = Array.from({ length: 13 });
+  /** Febbraio, aprile, …, dicembre: le colonne velate. L'indice 12 è l'anno e resta chiaro. */
+  protected alt(i: number): boolean {
+    return i < 12 && i % 2 === 1;
+  }
   protected readonly current = currentMonth();
 
   protected readonly year = signal(Number(this.current.slice(0, 4)));
