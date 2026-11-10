@@ -64,6 +64,8 @@ python tools/import/import.py bbva estratto.xlsx --saldo 1234.56 --al 2026-10-12
 - Si può rieseguire: gli id sono stabili e le assegnazioni fatte a mano non vengono toccate.
 - Non crea doppioni con ciò che è già registrato: una riga con lo stesso conto e importo, entro 3 giorni, si abbina 1:1 al movimento arrivato da notifica, inserito a mano o generato da una ricorrente, e lo completa. Il risultato dell'esecuzione dice quante righe sono nuove, unite o già importate.
 - Le righe "TRASFERIMENTO PROGRAMMA IL TUO CONTO" diventano accantonamenti verso il Salvadanaio, sulla riga "Risparmio" del mese; tutto il resto entra da assegnare (o sulla riga scelta dalla Rubrica).
+- Le causali elencate in `ARROTONDAMENTI` (in `tools/import/import.py`, da completare con il testo esatto dell'estratto) diventano arrotondamenti verso il Salvadanaio, sulla riga "Arrotonda acquisti" se c'è nel mese.
+- Un movimento che arriva dal Salvadanaio va sulla riga "Prelievo dal Salvadanaio" se c'è nel mese, altrimenti su "Risparmio".
 
 ## Documentazione
 

@@ -4,6 +4,16 @@ import { MonthLine, supabase } from './supabase';
 
 type Result = { error: { message: string } | null; status: number };
 
+/**
+ * Righe che muovono il Salvadanaio, riconosciute per nome (come "Risparmio") anche dal database:
+ * rinominate, tornano righe normali. Il prelievo sta tra le Entrate, l'arrotondamento in un secchio.
+ */
+export const RESERVE_LINES = {
+  withdrawal: { name: 'Prelievo dal Salvadanaio', note: 'Tra le Entrate: aggiunge soldi spendibili e li toglie dal Salvadanaio.' },
+  roundup: { name: 'Arrotonda acquisti', note: 'Toglie dal conto principale e mette nel Salvadanaio, come il Risparmio.' },
+} as const;
+export type ReserveLineType = keyof typeof RESERVE_LINES;
+
 /** Verso di una riga: le entrate (senza secchio) positive, le righe dei secchi negative. Con 'saving' superare il previsto è un bene. */
 export function lineKind(bucketId: string | null, overIsGood = false): 'income' | 'expense' | 'saving' {
   return !bucketId ? 'income' : overIsGood ? 'saving' : 'expense';

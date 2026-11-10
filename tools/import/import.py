@@ -26,6 +26,9 @@ NS = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
 ID_NAMESPACE = uuid.UUID("6f1d3a52-6c1e-4f43-9a0e-0b7d4c2a9b11")
 OUT = Path(__file__).parent / "out"
 ACCANTONAMENTO = "TRASFERIMENTO PROGRAMMA IL TUO CONTO"
+# Causali BBVA degli arrotondamenti verso il Salvadanaio: vanno sulla riga "Arrotonda acquisti".
+# Vuota finché non si conosce il testo esatto dell'estratto: aggiungilo qui, identico alla colonna "Causale".
+ARROTONDAMENTI: tuple[str, ...] = ()
 
 
 def read_sheet(path):
@@ -122,9 +125,9 @@ def bbva(args):
 
     data = [v for n, v in rows if n > header_row and v.get(col["Importo"])]
     seen = collections.Counter()
-    out = []  # (id, conto, centesimi, data, data_valuta, esercente, nota, gruppo)
+    out = []  # (id, conto, centesimi, data, data_valuta, esercente, nota, gruppo, riga)
     per_month = collections.defaultdict(lambda: [0, 0])
-    accantonamenti = da_classificare = 0
+    accantonamenti = arrotondamenti = da_classificare = 0
     total = 0
     for v in data:
         raw = tuple(v.get(col[h], "") for h in needed)
@@ -139,18 +142,24 @@ def bbva(args):
         m[0] += 1
         m[1] += cents
         note = " · ".join(p for p in (movimento, beneficiario) if p)
-        if causale == ACCANTONAMENTO:
-            accantonamenti += 1
+        if causale == ACCANTONAMENTO or causale in ARROTONDAMENTI:
+            line = None
+            if causale == ACCANTONAMENTO:
+                accantonamenti += 1
+            else:
+                arrotondamenti += 1
+                line = "Arrotonda acquisti"
             group = stable_id(*key, "gruppo")
-            # Il lato BBVA va sulla riga "Risparmio" del mese (private.import_statement).
+            # Il lato BBVA va sulla riga indicata o, senza (o se manca nel mese), su "Risparmio",
+            # o su "Prelievo dal Salvadanaio" se i soldi arrivano dal Salvadanaio (private.import_statement).
             out.append((stable_id(*key, "principale"), "BBVA", cents,
-                        booking_date, value_date, causale, note, group))
+                        booking_date, value_date, causale, note, group, line))
             out.append((stable_id(*key, "salvadanaio"), "Salvadanaio", -cents,
-                        booking_date, value_date, causale, note, group))
+                        booking_date, value_date, causale, note, group, line))
         else:
             da_classificare += 1
             out.append((stable_id(*key), "BBVA", cents,
-                        booking_date, value_date, causale, note, None))
+                        booking_date, value_date, causale, note, None, None))
 
     # Controlli indipendenti prima di scrivere qualsiasi cosa.
     assert len(data) == sum(m[0] for m in per_month.values())
@@ -158,7 +167,7 @@ def bbva(args):
     assert sum(r[2] for r in out if r[1] == "BBVA") == total, "somma del conto principale diversa dall'estratto"
 
     OUT.mkdir(exist_ok=True)
-    fields = ("id", "account", "amount", "booking_date", "value_date", "merchant", "note", "grp")
+    fields = ("id", "account", "amount", "booking_date", "value_date", "merchant", "note", "grp", "line")
     payload = json.dumps(
         [dict(zip(fields, (*r[:3], r[3].isoformat(), r[4].isoformat(), *r[5:]))) for r in out],
         ensure_ascii=False,
@@ -173,6 +182,7 @@ select private.import_statement((select id from auth.users), {q(payload)}::jsonb
 
     print(f"Righe dell'estratto: {len(data)} (tutte importate)")
     print(f"  accantonamenti verso il Salvadanaio: {accantonamenti} (2 righe ciascuno)")
+    print(f"  arrotondamenti verso il Salvadanaio: {arrotondamenti} (2 righe ciascuno)")
     print(f"  da classificare (riga 'Da assegnare'): {da_classificare}")
     print(f"Movimenti generati: {len(out)}")
     for month, (n, cents) in sorted(per_month.items()):

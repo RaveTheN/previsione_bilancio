@@ -113,7 +113,9 @@ export class TransferSheet {
     const [from, to] = [role(this.from()), role(this.to())];
     if (!from || !to || this.from() === this.to()) return 'Scegli due conti diversi.';
     if (from === to) return 'Trasferimento: resta fuori da entrate e uscite.';
-    return from === 'spendable' ? 'Accantonamento: conta come risparmio.' : 'Prelievo dalla riserva: riduce il risparmio del mese.';
+    return from === 'spendable'
+      ? 'Accantonamento: conta come risparmio.'
+      : 'Prelievo dal Salvadanaio: va sulla riga "Prelievo dal Salvadanaio" se c\'è nel mese, altrimenti riduce il risparmio.';
   });
 
   protected async save(): Promise<void> {

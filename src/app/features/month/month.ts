@@ -6,7 +6,7 @@ import { MatMenuModule } from '@angular/material/menu';
 import { CdkDrag, CdkDragDrop, CdkDragHandle, CdkDropList, CdkDropListGroup } from '@angular/cdk/drag-drop';
 import { MatSnackBar } from '@angular/material/snack-bar';
 import { currentMonth, Ledger, monthLabel, shiftMonth } from '../../core/ledger';
-import { addLine, copyForecast, deleteLine, inputToForecast, lineKind, moveLine, signedText, updateLine } from '../../core/budget';
+import { addLine, copyForecast, deleteLine, inputToForecast, lineKind, moveLine, RESERVE_LINES, ReserveLineType, signedText, updateLine } from '../../core/budget';
 import { diffTone, formatCents } from '../../core/money';
 import { onlineSignal } from '../../core/online';
 import { errorText, MonthLine, MonthOverview } from '../../core/supabase';
@@ -250,16 +250,31 @@ const percent = new Intl.NumberFormat('it-IT', { style: 'percent', maximumFracti
         <details class="tool">
           <summary>Aggiungi una riga</summary>
           <form (ngSubmit)="addRow()">
-            <input name="name" autocomplete="off" placeholder="Nome (es. Affitto)" aria-label="Nome della riga" [(ngModel)]="newName" />
-            <select name="bucket" aria-label="Secchio" [(ngModel)]="newBucket">
-              <option value="">Secchio</option>
-              @for (b of ledger.buckets(); track b.id) {
-                <option [value]="b.id">{{ b.name }}</option>
+            <select name="type" aria-label="Tipo di riga" [ngModel]="newType" (ngModelChange)="pickType($event)">
+              <option value="">Riga normale</option>
+              @for (t of reserveTypes; track t) {
+                <option [value]="t">{{ reserveLines[t].name }}</option>
               }
-              <option value="entrate">Entrate</option>
             </select>
+            @if (!newType) {
+              <input name="name" autocomplete="off" placeholder="Nome (es. Affitto)" aria-label="Nome della riga" [(ngModel)]="newName" />
+            }
+            <!-- Il prelievo sta sempre tra le Entrate: niente secchio da scegliere. -->
+            @if (newType !== 'withdrawal') {
+              <select name="bucket" aria-label="Secchio" [(ngModel)]="newBucket">
+                <option value="">Secchio</option>
+                @for (b of ledger.buckets(); track b.id) {
+                  <option [value]="b.id">{{ b.name }}</option>
+                }
+                @if (!newType) {
+                  <option value="entrate">Entrate</option>
+                }
+              </select>
+            }
             <input name="amount" inputmode="decimal" autocomplete="off" placeholder="0,00" aria-label="Importo" [(ngModel)]="newAmount" />
-            @if (newBucket !== 'entrate') {
+            @if (newType) {
+              <p class="note">{{ reserveLines[newType].note }}</p>
+            } @else if (newBucket !== 'entrate') {
               <label class="check">
                 <input type="checkbox" name="overGood" [(ngModel)]="newOverGood" />
                 Superare il previsto è un bene (verde, come il risparmio)
@@ -563,6 +578,9 @@ export class Month {
   protected newBucket = '';
   protected newAmount = '';
   protected newOverGood = false;
+  protected newType: ReserveLineType | '' = '';
+  protected readonly reserveLines = RESERVE_LINES;
+  protected readonly reserveTypes = Object.keys(RESERVE_LINES) as ReserveLineType[];
   protected copyUntil = '';
 
   /** Maniglia: sei puntini, due colonne per tre righe. */
@@ -632,8 +650,14 @@ export class Month {
     this.done(await updateLine(r.id, { amount_cents: amount ?? 0 }), 'Previsione non salvata');
   }
 
+  /** Il tipo fissa il nome e, per il prelievo, il secchio; l'arrotondamento parte dal secchio del risparmio. */
+  protected pickType(type: ReserveLineType | ''): void {
+    this.newType = type;
+    this.newBucket = type === 'withdrawal' ? 'entrate' : type === 'roundup' ? (this.ledger.settings()?.savings_bucket_id ?? '') : '';
+  }
+
   protected async addRow(): Promise<void> {
-    const name = this.newName.trim();
+    const name = this.newType ? RESERVE_LINES[this.newType].name : this.newName.trim();
     const bucketId = this.newBucket === 'entrate' ? null : this.newBucket;
     const amount = inputToForecast(this.newAmount, lineKind(bucketId));
     if (!name || !this.newBucket || amount === undefined) {
@@ -650,6 +674,7 @@ export class Month {
       this.newName = '';
       this.newAmount = '';
       this.newOverGood = false;
+      this.pickType('');
     }
   }
 
