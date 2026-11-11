@@ -193,8 +193,8 @@ select is(
    from public.month_overview('2026-10-01', '2027-01-15') o,
         public.month_overview('2026-11-01', '2027-01-15') n,
         public.month_overview('2027-02-01', '2027-01-15') f),
-  array[100000, 125000, 130000, 125000]::bigint[],
-  'Salvadanaio: ricostruito dal saldo di riferimento; l''accantonamento lo aumenta; previsto con le righe Risparmio'
+  array[100000, 125000, 125000, 125000]::bigint[],
+  'Salvadanaio: ricostruito dal saldo di riferimento; l''accantonamento lo aumenta; previsto con l''effettivo del Risparmio'
 );
 
 -- Modifiche: una spesa passata e una previsione futura aggiornano i residui successivi.

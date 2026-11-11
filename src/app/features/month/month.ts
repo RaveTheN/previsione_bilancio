@@ -117,8 +117,11 @@ const percent = new Intl.NumberFormat('it-IT', { style: 'percent', maximumFracti
 
       @if (o.reserve_actual !== null) {
         <section class="card reserve" aria-label="Salvadanaio">
-          <span class="label">{{ future() ? 'Salvadanaio previsto a fine mese' : 'Salvadanaio a fine mese' }}</span>
-          <strong>{{ fmtN(future() ? o.reserve_forecast : o.reserve_actual) }}</strong>
+          <span class="label">Salvadanaio previsto a fine mese</span>
+          <strong>{{ fmtN(o.reserve_forecast) }}</strong>
+          @if (!future()) {
+            <span class="label">Saldo effettivo: {{ fmtN(o.reserve_actual) }}</span>
+          }
           <span class="label">Totale con il disponibile: {{ fmtN(total()) }}</span>
         </section>
       }

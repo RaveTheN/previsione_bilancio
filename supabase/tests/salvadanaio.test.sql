@@ -2,7 +2,7 @@
 -- "Oggi" è fissato con p_today, così i test non scadono.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(9);
+select plan(10);
 
 insert into auth.users (id, email) values ('00000000-0000-0000-0000-00000000000a', 'a@example.com');
 insert into public.accounts (id, user_id, name, role, balance_cents, balance_date) values
@@ -92,13 +92,18 @@ select is(
   '{"in_a": 34000, "sav_a": -10137, "reserve_a": 76137}'::jsonb,
   'Salvadanaio effettivo: 100000 − 30000 − 4000 + 10000 + 137'
 );
+select is(
+  (select public.month_overview('2026-11-01', '2026-11-15') -> 'reserve_forecast'),
+  '76137'::jsonb,
+  'con dei movimenti il previsto segue l''effettivo delle righe: 100000 − 34000 + 10000 + 137'
+);
 
 -- Dicembre si copia da novembre: le due righe restano collegate al Salvadanaio anche lì.
 select is(public.ensure_month_lines('2026-12-01'), 5, 'dicembre copia le cinque righe di novembre');
 select is(
   (select public.month_overview('2026-12-01', '2026-11-15') -> 'reserve_forecast'),
-  '64000'::jsonb,
-  'mesi futuri: il Salvadanaio previsto prosegue con le righe copiate (82000 − 30000 + 10000 + 2000)'
+  '58137'::jsonb,
+  'mesi futuri: il Salvadanaio previsto prosegue con le righe copiate (76137 − 30000 + 10000 + 2000)'
 );
 
 select * from finish();
