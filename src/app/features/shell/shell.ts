@@ -91,12 +91,14 @@ import { QuickAddLauncher } from '../quick-add/quick-add';
       max-width: 720px;
       margin: 0 auto;
       box-sizing: border-box;
-      padding: calc(12px + env(safe-area-inset-top)) 16px 24px;
+      /* In fondo resta lo spazio della barra, che è fissa sopra il contenuto. */
+      padding: calc(12px + env(safe-area-inset-top)) 16px calc(88px + env(safe-area-inset-bottom));
     }
     nav {
       order: 2;
-      position: sticky;
-      bottom: 0;
+      /* Fissa, non sticky: su iPhone la barra sticky scorreva via con la pagina. */
+      position: fixed;
+      inset: auto 0 0;
       z-index: 10;
       display: flex;
       justify-content: space-around;
@@ -181,8 +183,12 @@ import { QuickAddLauncher } from '../quick-add/quick-add';
         grid-template-columns: auto 1fr;
         grid-template-rows: none;
       }
+      main {
+        padding-bottom: 24px;
+      }
       nav {
         order: 0;
+        position: sticky;
         top: 0;
         height: 100dvh;
         flex-direction: column;
