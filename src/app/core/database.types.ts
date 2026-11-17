@@ -187,14 +187,14 @@ isOneToOne: false
                   ]
                 },"parse_rules": {
                   Row: {
-                    "action": string,"amount_regex": string | null,"app": string,"card_regex": string | null,"created_at": string,"id": string,"match_regex": string,"merchant_regex": string | null,"priority": number,"user_id": string
+                    "action": string,"amount_regex": string | null,"app": string,"card_regex": string | null,"created_at": string,"id": string,"line_name": string | null,"match_regex": string,"merchant_regex": string | null,"priority": number,"user_id": string
                   }
                   ComputedFields: never
                   Insert: {
-                    "action": string,"amount_regex"?: string | null,"app": string,"card_regex"?: string | null,"created_at"?: string,"id"?: string,"match_regex": string,"merchant_regex"?: string | null,"priority"?: number,"user_id"?: string
+                    "action": string,"amount_regex"?: string | null,"app": string,"card_regex"?: string | null,"created_at"?: string,"id"?: string,"line_name"?: string | null,"match_regex": string,"merchant_regex"?: string | null,"priority"?: number,"user_id"?: string
                   }
                   Update: {
-                    "action"?: string,"amount_regex"?: string | null,"app"?: string,"card_regex"?: string | null,"created_at"?: string,"id"?: string,"match_regex"?: string,"merchant_regex"?: string | null,"priority"?: number,"user_id"?: string
+                    "action"?: string,"amount_regex"?: string | null,"app"?: string,"card_regex"?: string | null,"created_at"?: string,"id"?: string,"line_name"?: string | null,"match_regex"?: string,"merchant_regex"?: string | null,"priority"?: number,"user_id"?: string
                   }
                   Relationships: [
                     
@@ -409,6 +409,9 @@ isOneToOne: false
                            },
 "chart_data":
 { Args: { "p_from": string,"p_to": string,"p_today"?: string }; Returns: Json
+                           },
+"complete_event":
+{ Args: { "p_amount_cents": number,"p_event_id": string }; Returns: string
                            },
 "create_transfer":
 { Args: { "p_amount_cents": number,"p_booking_date"?: string,"p_from": string,"p_id": string,"p_note"?: string,"p_to": string }; Returns: undefined

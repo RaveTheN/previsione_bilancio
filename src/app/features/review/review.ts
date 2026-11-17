@@ -3,11 +3,14 @@ import { RouterLink } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
 import { MatSnackBar } from '@angular/material/snack-bar';
 import { Ledger } from '../../core/ledger';
-import { formatCents } from '../../core/money';
+import { formatCents, parseAmount } from '../../core/money';
 import { onlineSignal } from '../../core/online';
-import { errorText, IngestEvent, supabase, Transaction } from '../../core/supabase';
+import { errorText, IngestEvent, ParseRule, supabase, Transaction } from '../../core/supabase';
 import { Sync } from '../../core/sync';
 import { QuickAddLauncher } from '../quick-add/quick-add';
+
+/** La notifica con la sua regola: se la regola non legge l'importo, si scrive qui. */
+type ReviewEvent = IngestEvent & { parse_rules: Pick<ParseRule, 'action' | 'amount_regex' | 'line_name'> | null };
 
 /** Notifiche non riconosciute e movimenti da controllare, di tutti i mesi. */
 @Component({
@@ -29,6 +32,16 @@ import { QuickAddLauncher } from '../quick-add/quick-add';
             <span class="text">{{ text(e) }}</span>
             @if (e.error) {
               <span class="warn">{{ e.error }}</span>
+            }
+            @if (e.parse_rules; as rule) {
+              @if (!rule.amount_regex && rule.action !== 'ignore') {
+                <div class="actions">
+                  <input #amount inputmode="decimal" autocomplete="off" placeholder="0,00" [attr.aria-label]="'Importo per ' + (rule.line_name ?? 'il movimento')" />
+                  <button mat-flat-button type="button" [disabled]="!online()" (click)="complete(e, amount.value)">
+                    {{ rule.line_name ? 'Aggiungi a ' + rule.line_name : 'Crea movimento' }}
+                  </button>
+                </div>
+              }
             }
             <div class="actions">
               <button mat-stroked-button type="button" [disabled]="!online()" (click)="retry(e)">Riprova</button>
@@ -115,8 +128,18 @@ import { QuickAddLauncher } from '../quick-add/quick-add';
       gap: 8px;
     }
     .actions button,
-    .actions a {
+    .actions a,
+    .actions input {
       min-height: 44px;
+    }
+    .actions input {
+      width: 7em;
+      padding: 0 8px;
+      border: 1px solid var(--mat-sys-outline-variant);
+      border-radius: 8px;
+      background: var(--mat-sys-surface);
+      color: var(--mat-sys-on-surface);
+      font: var(--mat-sys-body-large);
     }
     .tools {
       justify-content: flex-end;
@@ -143,7 +166,7 @@ export class Review {
   private readonly sync = inject(Sync);
   protected readonly online = onlineSignal();
   protected readonly fmt = formatCents;
-  protected readonly events = signal<IngestEvent[]>([]);
+  protected readonly events = signal<ReviewEvent[]>([]);
   protected readonly txs = signal<Transaction[]>([]);
 
   constructor() {
@@ -184,6 +207,15 @@ export class Review {
     await this.load();
   }
 
+  protected async complete(e: IngestEvent, text: string): Promise<void> {
+    const cents = parseAmount(text);
+    if (cents === null) {
+      this.snackBar.open('Scrivi un importo, es. 2,27', 'OK', { duration: 3000 });
+      return;
+    }
+    this.done(await supabase.rpc('complete_event', { p_event_id: e.id, p_amount_cents: cents }), 'Non salvato');
+  }
+
   protected async dismiss(e: IngestEvent): Promise<void> {
     this.done(await supabase.from('ingest_events').delete().eq('id', e.id), 'Non eliminata');
   }
@@ -204,7 +236,7 @@ export class Review {
     const [events, txs] = await Promise.all([
       supabase
         .from('ingest_events')
-        .select()
+        .select('*, parse_rules(action, amount_regex, line_name)')
         .in('status', ['unrecognized', 'error'])
         .is('transaction_id', null)
         .order('occurred_at', { ascending: false }),

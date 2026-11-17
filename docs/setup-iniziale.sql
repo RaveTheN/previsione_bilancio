@@ -50,3 +50,25 @@ from auth.users u,
 where not exists (
   select from public.parse_rules p where p.user_id = u.id and p.app = 'PayPal' and p.match_regex = r.match_regex
 );
+
+-- Regole che parlano con le righe del mese (migrazione "regole_righe"):
+--   "Prelievo accettato 👍💶Prelievo di 100,00 EUR effettuato con la tua carta *1234" → riga "Contanti"
+--   "Rimborso accettato 👍🔙Rimborso di 37,05 EUR presso NEGOZIO effettuato con la tua carta *1234"
+--     → riga "Rimborso NEGOZIO" tra le Entrate, con il previsto
+--   "Arrotonda acquisti" (senza importo) → l'importo si scrive in Da rivedere, riga "Arrotonda acquisti"
+-- e notifiche da ignorare.
+insert into public.parse_rules (user_id, app, priority, match_regex, action, amount_regex, merchant_regex, card_regex, line_name)
+select u.id, r.app, r.priority, r.match_regex, r.action, r.amount_regex, r.merchant_regex, r.card_regex, r.line_name
+from auth.users u,
+  (values
+    ('BBVA', 3, 'Prelievo accettato', 'expense', '([0-9][0-9.,]*)\s*EUR', null, 'carta\s+\*+(\d{4})', 'Contanti'),
+    ('BBVA', 4, 'Rimborso accettato', 'forecast', '([0-9][0-9.,]*)\s*EUR', 'presso\s+(.+?)\s+effettuato con', null, null),
+    ('BBVA', 5, 'Arrotonda acquisti', 'expense', null, null, null, 'Arrotonda acquisti'),
+    ('BBVA', 6, 'Conferma pagamento', 'ignore', null, null, null, null),
+    ('PayPal', 4, 'You received', 'ignore', null, null, null, null),
+    ('PayPal', 5, 'Logging in\?', 'ignore', null, null, null, null),
+    ('PayPal', 6, 'Try package again', 'ignore', null, null, null, null)
+  ) as r (app, priority, match_regex, action, amount_regex, merchant_regex, card_regex, line_name)
+where not exists (
+  select from public.parse_rules p where p.user_id = u.id and p.app = r.app and p.match_regex = r.match_regex
+);

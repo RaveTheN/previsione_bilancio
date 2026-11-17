@@ -14,6 +14,7 @@ const ACTIONS = [
   { value: 'expense', label: 'Spesa' },
   { value: 'income', label: 'Entrata' },
   { value: 'authorized', label: 'Spesa da confermare (addebito in arrivo)' },
+  { value: 'forecast', label: 'Entrata prevista: crea una riga con il previsto' },
   { value: 'ignore', label: 'Ignora la notifica' },
 ];
 
@@ -69,9 +70,16 @@ const ACTIONS = [
           </select>
         </label>
         @if (action() !== 'ignore') {
-          <label>Importo <input name="amount" autocomplete="off" spellcheck="false" [(ngModel)]="amount" /></label>
+          <label>
+            {{ askable() ? 'Importo (vuoto: lo scrivi tu in Da rivedere)' : 'Importo' }}
+            <input name="amount" autocomplete="off" spellcheck="false" [(ngModel)]="amount" />
+          </label>
           <label>Esercente <input name="merchant" autocomplete="off" spellcheck="false" [(ngModel)]="merchant" /></label>
           <label>Ultime cifre della carta (facoltativo) <input name="card" autocomplete="off" spellcheck="false" [(ngModel)]="card" /></label>
+          <label>
+            {{ action() === 'forecast' ? 'Inizio del nome della riga (vuoto: Rimborso)' : 'Riga del mese, per nome (facoltativo)' }}
+            <input name="line" autocomplete="off" [(ngModel)]="line" />
+          </label>
         }
         @if (error()) {
           <p class="warn" role="alert">{{ error() }}</p>
@@ -211,7 +219,10 @@ export class Rules implements OnInit {
   protected amount = '([0-9][0-9.,]*)\\s*EUR';
   protected merchant = '';
   protected card = '';
+  protected line = '';
 
+  /** Spese ed entrate possono non avere l'importo nella notifica: si scrive in Da rivedere. */
+  protected readonly askable = computed(() => ['expense', 'income'].includes(this.action()));
   protected readonly apps = computed(() => [...new Set(this.rules().map((r) => r.app))]);
   protected readonly recognized = computed(() => (this.results() ?? []).filter((t) => t.matched).length);
 
@@ -232,13 +243,14 @@ export class Rules implements OnInit {
     this.amount = r.amount_regex ?? '';
     this.merchant = r.merchant_regex ?? '';
     this.card = r.card_regex ?? '';
+    this.line = r.line_name ?? '';
     this.error.set('');
     this.results.set(null);
   }
 
   protected reset(): void {
     this.editing.set(null);
-    this.app = this.match = this.merchant = this.card = '';
+    this.app = this.match = this.merchant = this.card = this.line = '';
     this.priority = 10;
     this.amount = '([0-9][0-9.,]*)\\s*EUR';
     this.action.set('expense');
@@ -265,8 +277,8 @@ export class Rules implements OnInit {
 
   protected async save(): Promise<void> {
     const ignore = this.action() === 'ignore';
-    if (!this.app.trim() || !this.match.trim() || (!ignore && !this.amount.trim())) {
-      this.error.set('Servono app, testo da riconoscere e, se non si ignora, l\'importo.');
+    if (!this.app.trim() || !this.match.trim() || (!ignore && !this.askable() && !this.amount.trim())) {
+      this.error.set('Servono app, testo da riconoscere e, per questa azione, l\'importo.');
       return;
     }
     const row = {
@@ -274,9 +286,10 @@ export class Rules implements OnInit {
       priority: this.priority,
       match_regex: this.match,
       action: this.action(),
-      amount_regex: ignore ? null : this.amount,
+      amount_regex: ignore ? null : this.amount.trim() || null,
       merchant_regex: ignore ? null : this.merchant || null,
       card_regex: ignore ? null : this.card || null,
+      line_name: ignore ? null : this.line.trim() || null,
     };
     const id = this.editing();
     const res = id ? await supabase.from('parse_rules').update(row).eq('id', id) : await supabase.from('parse_rules').insert(row);
