@@ -117,11 +117,8 @@ const percent = new Intl.NumberFormat('it-IT', { style: 'percent', maximumFracti
 
       @if (o.reserve_actual !== null) {
         <section class="card reserve" aria-label="Salvadanaio">
-          <span class="label">Salvadanaio previsto a fine mese</span>
+          <span class="label">{{ future() ? 'Salvadanaio previsto a fine mese' : 'Saldo del Salvadanaio' }}</span>
           <strong>{{ fmtN(o.reserve_forecast) }}</strong>
-          @if (!future()) {
-            <span class="label">Saldo effettivo: {{ fmtN(o.reserve_actual) }}</span>
-          }
           <span class="label">Totale con il disponibile: {{ fmtN(total()) }}</span>
         </section>
       }
@@ -614,7 +611,8 @@ export class Month {
 
   protected readonly total = computed(() => {
     const o = this.ov();
-    const [reserve, end] = this.future() ? [o?.reserve_forecast, o?.end_forecast] : [o?.reserve_actual, o?.end_actual];
+    // Il Salvadanaio segue le righe che lo muovono (reserve_forecast): è quello che coincide con la banca.
+    const [reserve, end] = [o?.reserve_forecast, this.future() ? o?.end_forecast : o?.end_actual];
     return reserve == null || end == null ? null : reserve + end;
   });
 
