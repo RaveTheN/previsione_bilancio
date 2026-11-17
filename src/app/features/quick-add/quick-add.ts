@@ -83,19 +83,30 @@ type TwinCandidate = Pick<Transaction, 'source' | 'account_id' | 'amount_cents' 
       </div>
 
       @if (hasMerchant) {
-        <label class="merchant">
-          Esercente
-          <input name="merchant" list="elenco-esercenti" autocomplete="off" placeholder="Il nome che vuoi tu" [ngModel]="merchantName" (ngModelChange)="setMerchant($event)" />
-          @if (tx?.merchant_raw) {
-            <span class="hint">Dalla banca: {{ tx?.merchant_raw }}</span>
-          }
+        @if (!noMerchant()) {
+          <label class="merchant">
+            Esercente
+            <input name="merchant" list="elenco-esercenti" autocomplete="off" placeholder="Il nome che vuoi tu" [ngModel]="merchantName" (ngModelChange)="setMerchant($event)" />
+          </label>
+          <datalist id="elenco-esercenti">
+            @for (m of ledger.merchants(); track m.id) {
+              <option [value]="m.name"></option>
+            }
+          </datalist>
+        }
+        @if (tx?.merchant_raw) {
+          <span class="hint">Dalla banca: {{ tx?.merchant_raw }}</span>
+        }
+        <!-- Non è un esercente (es. un prelievo, un F24): niente nome e niente regola, la riga si sceglie ogni volta. -->
+        <label class="check">
+          <input type="checkbox" name="noMerchant" [ngModel]="noMerchant()" (ngModelChange)="noMerchant.set($event)" />
+          No esercente: scelgo la riga ogni volta
         </label>
-        <datalist id="elenco-esercenti">
-          @for (m of ledger.merchants(); track m.id) {
-            <option [value]="m.name"></option>
-          }
-        </datalist>
       }
+      <label class="merchant">
+        Nota
+        <input name="note" autocomplete="off" [placeholder]="noMerchant() ? 'Motivo del pagamento' : ''" [(ngModel)]="note" />
+      </label>
 
       <p class="hint">Righe di {{ lineMonthLabel() }}</p>
       <!-- Le righe del mese del movimento: anche un'entrata può andare su una riga di spesa, come un rimborso. -->
@@ -167,7 +178,6 @@ type TwinCandidate = Pick<Transaction, 'source' | 'account_id' | 'amount_cents' 
             }
           </select>
         </label>
-        <label>Nota <input name="note" autocomplete="off" [(ngModel)]="note" /></label>
         <label>
           Tag (separati da virgola)
           <input name="tags" list="elenco-tag" autocomplete="off" [(ngModel)]="tagsText" />
@@ -271,12 +281,18 @@ type TwinCandidate = Pick<Transaction, 'source' | 'account_id' | 'amount_cents' 
       margin-top: 12px;
       font: var(--mat-sys-label-large);
     }
+    .check,
     .new-line .check {
       display: flex;
       align-items: center;
       gap: 8px;
       min-height: 44px;
       margin-top: 0;
+      font: var(--mat-sys-label-large);
+    }
+    .check input {
+      width: 22px;
+      height: 22px;
     }
     .date label,
     .merchant,
@@ -350,6 +366,9 @@ export class QuickAdd {
   protected readonly hasMerchant = !!this.tx?.merchant_id || !isGenericOperation(this.tx?.merchant_raw ?? null);
   protected merchantName = this.ledger.merchantById().get(this.tx?.merchant_id ?? '')?.name ?? '';
   private readonly initialMerchantName = this.merchantName;
+  /** Il nome della banca non è un esercente: il campo sparisce e i movimenti così si assegnano uno per uno. */
+  protected readonly noMerchant = signal(false);
+  private initialNoMerchant = false;
 
   protected readonly amountCents = computed(() => parseAmount(this.amountText()));
   protected readonly activeAccounts = computed(() => this.ledger.accounts().filter((a) => !a.archived));
@@ -421,6 +440,7 @@ export class QuickAdd {
       }
     }
     this.newLineBucket ||= this.ledger.buckets()[0]?.id ?? '';
+    if (t?.merchant_raw && !t.merchant_id && this.hasMerchant) void this.loadNoMerchant(t.merchant_raw);
     effect(() => {
       const month = this.lineMonth();
       if (month !== this.ledger.month()) untracked(() => void this.loadLines(month));
@@ -432,6 +452,17 @@ export class QuickAdd {
         const found = this.lines().find((l) => l.id === id);
         if (found && !untracked(this.picked)) this.picked.set(found);
       });
+    }
+  }
+
+  /** La spunta parte accesa se questo nome della banca è già segnato come "non esercente" (in Rubrica: Ignorati). */
+  private async loadNoMerchant(raw: string): Promise<void> {
+    const key = await supabase.rpc('merchant_key', { p_raw: raw });
+    if (!key.data) return;
+    const alias = await supabase.from('merchant_aliases').select('id').eq('match_type', 'exact').eq('pattern', key.data).eq('ignored', true).maybeSingle();
+    if (alias.data) {
+      this.initialNoMerchant = true;
+      this.noMerchant.set(true);
     }
   }
 
@@ -557,7 +588,9 @@ export class QuickAdd {
         : date === todayIso()
           ? new Date().toISOString()
           : new Date(date + 'T12:00:00').toISOString();
-    const merchant = merchantChoice(this.tx, this.merchantName, this.initialMerchantName, this.ledger.merchants());
+    const merchant = this.noMerchant()
+      ? { merchantId: null, pendingName: null }
+      : merchantChoice(this.tx, this.merchantName, this.initialMerchantName, this.ledger.merchants());
     const row = {
       id,
       account_id: this.accountId,
@@ -603,9 +636,10 @@ export class QuickAdd {
       : [{ table: 'transactions', kind: 'delete', match: { id } }];
     // Solo un movimento ancora da assegnare insegna la regola all'esercente:
     // correggerne uno già assegnato resta un'eccezione.
-    const propagate = !!this.tx && this.hasMerchant && !this.tx.line_id && !!row.line_id;
+    const propagate = !!this.tx && this.hasMerchant && !this.noMerchant() && !this.tx.line_id && !!row.line_id;
+    const noMerchant = this.noMerchant() !== this.initialNoMerchant ? this.noMerchant() : undefined;
     const otherMonth = this.lineMonth() !== this.ledger.month() ? this.lineMonth() : undefined;
-    this.ref.dismiss({ id, undo, propagate, merchantName: merchant.pendingName, otherMonth });
+    this.ref.dismiss({ id, undo, propagate, merchantName: merchant.pendingName, otherMonth, noMerchant });
   }
 
   protected remove(): void {
@@ -636,6 +670,8 @@ interface Saved {
   merchantName: string | null;
   /** Salvato in un mese diverso da quello aperto: non si vede nella lista, quindi lo si dice. */
   otherMonth?: string;
+  /** La spunta "No esercente" è cambiata: il nome della banca va segnato (o tolto) dagli ignorati. */
+  noMerchant?: boolean;
 }
 
 /** Risultato di assign_like: serve anche così com'è per undo_assign_like. */
@@ -672,7 +708,7 @@ export class QuickAddLauncher {
       .subscribe((saved) => {
         if (!saved) return;
         this.confirm((tx ? 'Salvato' : 'Aggiunto') + (saved.otherMonth ? ` in ${monthLabel(saved.otherMonth)}` : ''), saved.undo);
-        if (saved.propagate || saved.merchantName) void this.afterSave(tx, saved);
+        if (saved.propagate || saved.merchantName || saved.noMerchant !== undefined) void this.afterSave(tx, saved);
         onSaved?.(saved.id);
       });
   }
@@ -685,9 +721,27 @@ export class QuickAddLauncher {
       this.snackBar.open('Offline: esercente e movimenti simili non aggiornati', 'OK', { duration: 5000 });
       return;
     }
+    if (saved.noMerchant !== undefined && tx?.merchant_raw && !(await this.setNoMerchant(tx, saved.noMerchant))) return;
     if (saved.merchantName && !(await this.nameMerchant(tx, saved.id, saved.merchantName))) return;
     if (saved.propagate) await this.assignLike(saved.id);
     else void this.ledger.load();
+  }
+
+  /**
+   * "No esercente": il nome della banca finisce tra gli ignorati della Rubrica, così i prossimi movimenti
+   * con quel nome restano da assegnare; questo perde l'esercente. Tolta la spunta, il nome torna normale.
+   */
+  private async setNoMerchant(tx: Transaction, on: boolean): Promise<boolean> {
+    const key = await supabase.rpc('merchant_key', { p_raw: tx.merchant_raw ?? '' });
+    if (!key.data) return !key.error;
+    const alias = supabase.from('merchant_aliases');
+    let res: { error: { message: string } | null; status: number } = on
+      ? await alias.upsert({ pattern: key.data, match_type: 'exact', ignored: true, merchant_id: null }, { onConflict: 'user_id,match_type,pattern' })
+      : await alias.delete().eq('match_type', 'exact').eq('pattern', key.data).eq('ignored', true);
+    // Dopo l'alias: così il movimento non viene ricollegato all'esercente.
+    if (!res.error && on && tx.merchant_id) res = await supabase.from('transactions').update({ merchant_id: null }).eq('id', tx.id);
+    if (res.error) this.snackBar.open('"No esercente" non salvato: ' + errorText(res), 'OK');
+    return !res.error;
   }
 
   /** Rinomina l'esercente del movimento, oppure lo crea (o lo trova per nome) e collega il nome grezzo. */

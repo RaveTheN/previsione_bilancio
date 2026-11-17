@@ -124,6 +124,14 @@ import { QuickAddLauncher } from '../quick-add/quick-add';
     .active {
       color: var(--mat-sys-primary);
     }
+    /* La voce attiva ha la pastiglia dietro l'icona: margini negativi, la barra non cambia misura. */
+    .active svg {
+      box-sizing: content-box;
+      margin: -2px -14px;
+      padding: 2px 14px;
+      border-radius: 14px;
+      background: var(--mat-sys-secondary-container);
+    }
     .add {
       place-items: center;
       width: 56px;

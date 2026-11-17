@@ -4,7 +4,7 @@ import { currentMonth, Ledger } from '../../core/ledger';
 import { errorText, supabase } from '../../core/supabase';
 import { Sync } from '../../core/sync';
 import { ChartView } from './chart';
-import { bucketChart, ChartData, lineChart, merchantChart, periodOptions, periodRange, savingsChart, spendingTree } from './chart-data';
+import { balanceChart, bucketChart, ChartData, debtChart, lineChart, marginChart, merchantChart, periodOptions, periodRange, savingsChart, spendingTree, totalChart } from './chart-data';
 import { PieView } from './pie';
 
 /** Il filtro del periodo vale per tutti i grafici: i numeri sono quelli di griglia e vista mese. */
@@ -21,7 +21,7 @@ import { PieView } from './pie';
         }
       </select>
     </label>
-    <p class="note">Torta, scostamenti, secchi ed esercenti arrivano fino al mese in corso.</p>
+    <p class="note">Disponibile, risparmio, totale, margine e rate mostrano anche la previsione dei mesi futuri; torta, scostamenti, secchi ed esercenti arrivano fino al mese in corso.</p>
     @if (error()) {
       <p class="warn" role="alert">{{ error() }}</p>
     }
@@ -107,7 +107,11 @@ export class Charts {
     if (!data) return [];
     const past = data.months.filter((m) => m.month <= this.current);
     return [
+      { heading: 'Disponibile a fine mese', spec: balanceChart(data.months, this.current) },
       { heading: 'Risparmio accumulato', spec: savingsChart(data.months, this.current) },
+      { heading: 'Totale: disponibile più Salvadanaio', spec: totalChart(data.months, this.current) },
+      { heading: 'Margine del mese', spec: marginChart(data.months, this.current) },
+      { heading: 'Rate dei debiti', spec: debtChart(data.months) },
       { heading: 'Uscite: previsto ed effettivo', spec: lineChart(past, 'expense') },
       { heading: 'Entrate: previsto ed effettivo', spec: lineChart(past, 'income') },
       { heading: 'Ripartizione nei secchi', spec: bucketChart(past, this.ledger.buckets()) },

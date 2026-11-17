@@ -6,13 +6,14 @@ import { MatMenuModule } from '@angular/material/menu';
 import { CdkDrag, CdkDragDrop, CdkDragHandle, CdkDropList, CdkDropListGroup } from '@angular/cdk/drag-drop';
 import { MatSnackBar } from '@angular/material/snack-bar';
 import { currentMonth, Ledger, monthLabel, shiftMonth } from '../../core/ledger';
-import { addLine, copyForecast, deleteLine, inputToForecast, lineKind, moveLine, RESERVE_LINES, ReserveLineType, signedText, updateLine } from '../../core/budget';
+import { addLine, copyForecast, deleteLine, inputToForecast, lineKind, moveLine, repeatLine, repeatMonths, REPEATS, RESERVE_LINES, ReserveLineType, signedText, updateLine, writeByName } from '../../core/budget';
 import { diffTone, formatCents } from '../../core/money';
 import { onlineSignal } from '../../core/online';
-import { errorText, MonthLine, MonthOverview } from '../../core/supabase';
+import { errorText, MonthLine, MonthOverview, supabase, Transaction } from '../../core/supabase';
 import { Sync } from '../../core/sync';
 import { MonthHeader, SwipeMonth } from '../../shared/month-header';
 import { QuickAddLauncher } from '../quick-add/quick-add';
+import { movementTitle } from '../transactions/transactions';
 
 interface Row extends MonthLine {
   kind: string;
@@ -139,6 +140,7 @@ const percent = new Intl.NumberFormat('it-IT', { style: 'percent', maximumFracti
 
       <div class="actions">
         <button mat-stroked-button type="button" (click)="launcher.openTransfer()">Trasferisci</button>
+        <a mat-stroked-button routerLink="/movimenti" [queryParams]="{ vista: 'calendario' }">Calendario</a>
         <a mat-stroked-button routerLink="/grafici">Grafici</a>
       </div>
 
@@ -225,6 +227,43 @@ const percent = new Intl.NumberFormat('it-IT', { style: 'percent', maximumFracti
                         <td [class]="tone(r)">{{ fmt(r.actual) }}{{ arrow(r) }}</td>
                       }
                     </tr>
+                    <!-- Solo su richiesta, dal menu della riga: i suoi movimenti, o la copia in un altro mese. -->
+                    @if (detail()?.id === r.id) {
+                      <tr class="detail">
+                        <td [attr.colspan]="future() ? 2 : 3">
+                          @if (detail()?.mode === 'copy') {
+                            <form class="copy-row" (ngSubmit)="copyRow(r)">
+                              <label>
+                                Copia {{ r.name }} in
+                                <select name="copyTo" [(ngModel)]="copyTo">
+                                  <option value="">Scegli il mese</option>
+                                  @for (m of otherMonths(); track m) {
+                                    <option [value]="m">{{ label(m) }}</option>
+                                  }
+                                </select>
+                              </label>
+                              <button mat-button type="button" (click)="detail.set(null)">Chiudi</button>
+                              <button mat-stroked-button type="submit" [disabled]="!copyTo">Copia</button>
+                            </form>
+                          } @else {
+                            <ul class="moves">
+                              @for (t of movementsOf(r); track t.id) {
+                                <li>
+                                  <button type="button" (click)="launcher.open(t)">
+                                    <span class="sub">{{ day(t.booking_date) }}</span>
+                                    <span class="title">{{ title(t) }}</span>
+                                    <span>{{ fmt(t.amount_cents) }}</span>
+                                  </button>
+                                </li>
+                              } @empty {
+                                <li class="sub">Nessun movimento su questa riga in {{ label(ledger.month()) }}.</li>
+                              }
+                            </ul>
+                            <button mat-button type="button" (click)="detail.set(null)">Chiudi</button>
+                          }
+                        </td>
+                      </tr>
+                    }
                   }
                 </tbody>
               </table>
@@ -232,6 +271,8 @@ const percent = new Intl.NumberFormat('it-IT', { style: 'percent', maximumFracti
           </div>
           <mat-menu #rowMenu="matMenu">
             <ng-template matMenuContent let-r="r">
+              <button mat-menu-item type="button" (click)="detail.set({ id: r.id, mode: 'moves' })">Vedi i movimenti ({{ r.n }})</button>
+              <button mat-menu-item type="button" (click)="copyTo = ''; detail.set({ id: r.id, mode: 'copy' })">Copia in un altro mese</button>
               <button mat-menu-item type="button" (click)="renameRow(r)">Rinomina</button>
               @if (r.kind !== 'income') {
                 @for (b of ledger.buckets(); track b.id) {
@@ -279,6 +320,16 @@ const percent = new Intl.NumberFormat('it-IT', { style: 'percent', maximumFracti
                 <input type="checkbox" name="overGood" [(ngModel)]="newOverGood" />
                 Superare il previsto è un bene (verde, come il risparmio)
               </label>
+            }
+            <div class="repeat" role="group" aria-label="Ripetizione della riga">
+              @for (o of repeats; track o.step) {
+                <button type="button" [class.on]="repeat === o.step" [attr.aria-pressed]="repeat === o.step" (click)="repeat = repeat === o.step ? 0 : o.step">
+                  {{ o.label }}
+                </button>
+              }
+            </div>
+            @if (repeat) {
+              <p class="note">Oltre a {{ label(ledger.month()) }}: {{ repeatText() }}. Negli altri mesi la riga non compare.</p>
             }
             <button mat-stroked-button type="submit">Aggiungi</button>
           </form>
@@ -494,6 +545,73 @@ const percent = new Intl.NumberFormat('it-IT', { style: 'percent', maximumFracti
     .grid .better {
       color: var(--better);
     }
+    .grid tr.detail td {
+      padding: 4px 12px 8px;
+      text-align: right;
+      white-space: normal;
+      background: var(--mat-sys-surface-container-high);
+    }
+    .moves {
+      margin: 0;
+      padding: 0;
+      list-style: none;
+      text-align: left;
+    }
+    .moves button {
+      display: grid;
+      grid-template-columns: 3.5em minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 8px;
+      width: 100%;
+      min-height: 44px;
+      padding: 0;
+      border: 0;
+      border-bottom: 1px solid var(--mat-sys-outline-variant);
+      background: none;
+      color: inherit;
+      font: inherit;
+      text-align: left;
+      cursor: pointer;
+    }
+    .moves .title {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .copy-row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: flex-end;
+      justify-content: flex-end;
+      gap: 8px;
+      text-align: left;
+    }
+    .copy-row label {
+      display: grid;
+      flex: 1 1 180px;
+      gap: 4px;
+      font: var(--mat-sys-label-large);
+    }
+    .repeat {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .tool .repeat button {
+      justify-self: auto;
+      padding: 0 14px;
+      border: 1px solid var(--mat-sys-outline-variant);
+      border-radius: 22px;
+      background: none;
+      color: var(--mat-sys-on-surface);
+      font: var(--mat-sys-label-large);
+      cursor: pointer;
+    }
+    .tool .repeat .on {
+      border-color: var(--mat-sys-primary);
+      background: var(--mat-sys-primary-container);
+      color: var(--mat-sys-on-primary-container);
+    }
     .unassigned {
       display: flex;
       justify-content: space-between;
@@ -524,16 +642,22 @@ const percent = new Intl.NumberFormat('it-IT', { style: 'percent', maximumFracti
       color: var(--mat-sys-on-surface);
       font: var(--mat-sys-body-large);
     }
+    .tool {
+      padding: 0 12px;
+      border-radius: 12px;
+      background: var(--mat-sys-surface-container);
+    }
     .tool summary {
       display: flex;
       align-items: center;
-      min-height: 44px;
+      min-height: 48px;
       font: var(--mat-sys-title-small);
       cursor: pointer;
     }
     .tool form {
       display: grid;
       gap: 8px;
+      padding-bottom: 12px;
     }
     .tool label {
       display: grid;
@@ -582,6 +706,12 @@ export class Month {
   protected readonly reserveLines = RESERVE_LINES;
   protected readonly reserveTypes = Object.keys(RESERVE_LINES) as ReserveLineType[];
   protected copyUntil = '';
+  protected readonly repeats = REPEATS;
+  /** Ogni quanti mesi si ripete la riga nuova; 0 = non si ripete. */
+  protected repeat = 0;
+  /** Riga aperta sotto il suo nome: i movimenti, o la copia in un altro mese. */
+  protected readonly detail = signal<{ id: string; mode: 'moves' | 'copy' } | null>(null);
+  protected copyTo = '';
 
   /** Maniglia: sei puntini, due colonne per tre righe. */
   protected readonly dragIcon = [360, 600].flatMap((x) => [-720, -480, -240].map((y) => `M${x - 70} ${y}a70 70 0 1 0 140 0a70 70 0 1 0 -140 0Z`)).join('');
@@ -618,6 +748,41 @@ export class Month {
 
   /** Fino a due anni avanti: abbastanza per pianificare anche l'anno dopo. */
   protected readonly nextMonths = computed(() => Array.from({ length: 24 }, (_, i) => shiftMonth(this.ledger.month(), i + 1)));
+
+  /** Per copiare una riga: sei mesi indietro (mai prima dell'avvio) e due anni avanti. */
+  protected readonly otherMonths = computed(() => {
+    const from = this.ledger.settings()?.go_live_month ?? '';
+    return Array.from({ length: 30 }, (_, i) => shiftMonth(this.ledger.month(), i - 6)).filter((m) => m !== this.ledger.month() && m >= from);
+  });
+
+  protected movementsOf(r: Row): Transaction[] {
+    return this.ledger.transactions().filter((t) => t.line_id === r.id);
+  }
+
+  protected title(t: Transaction): string {
+    return movementTitle(t, this.ledger);
+  }
+
+  protected day(date: string): string {
+    return new Date(date + 'T12:00:00').toLocaleDateString('it-IT', { day: 'numeric', month: 'short' });
+  }
+
+  protected repeatText(): string {
+    const months = repeatMonths(this.ledger.month(), this.repeat);
+    return months.length === 1 ? monthLabel(months[0]) : `${months.slice(0, 3).map(monthLabel).join(', ')}… fino a ${monthLabel(months[months.length - 1])}`;
+  }
+
+  /** Copia una riga sola in un altro mese: lì sostituisce il previsto della riga con lo stesso nome, se c'è. */
+  protected async copyRow(r: Row): Promise<void> {
+    const to = this.copyTo;
+    if (!to) return;
+    const existing = await supabase.from('budget_lines').select('id').eq('month', to).eq('name', r.name);
+    if (existing.data?.length && !confirm(`In ${monthLabel(to)} c'è già una riga ${r.name}: sostituire il suo previsto?`)) return;
+    if (this.done(await writeByName(to, r.name, r.bucket_id, r.forecast, r.over_is_good), 'Riga non copiata')) {
+      this.detail.set(null);
+      this.snackBar.open(`${r.name} copiata in ${monthLabel(to)}`, 'OK', { duration: 4000 });
+    }
+  }
 
   protected fmtN(cents: number | null | undefined): string {
     return cents == null ? '—' : formatCents(cents);
@@ -666,7 +831,18 @@ export class Month {
       return;
     }
     const order = Math.max(0, ...this.rows().map((r) => r.sort_order)) + 1;
-    const res = await addLine(this.ledger.month(), name, bucketId, amount ?? 0, order, !!bucketId && this.newOverGood);
+    const overIsGood = !!bucketId && this.newOverGood;
+    // Prima i mesi futuri (vedi repeatLine); una riga doppia si scopre prima di scriverli.
+    if (this.repeat && !this.rows().some((r) => r.name.toLowerCase() === name.toLowerCase())) {
+      this.busy.set(true);
+      const repeated = await repeatLine(this.ledger.month(), this.repeat, { name, bucket_id: bucketId, forecast: amount ?? 0, sort_order: order, over_is_good: overIsGood });
+      this.busy.set(false);
+      if (repeated.error) {
+        this.snackBar.open(`Riga non aggiunta: ${errorText(repeated)}`, 'OK');
+        return;
+      }
+    }
+    const res = await addLine(this.ledger.month(), name, bucketId, amount ?? 0, order, overIsGood);
     if (res.error?.message.includes('budget_lines_name_uq')) {
       this.snackBar.open(`C'è già una riga ${name} in questo mese`, 'OK', { duration: 4000 });
       return;
@@ -675,6 +851,7 @@ export class Month {
       this.newName = '';
       this.newAmount = '';
       this.newOverGood = false;
+      this.repeat = 0;
       this.pickType('');
     }
   }

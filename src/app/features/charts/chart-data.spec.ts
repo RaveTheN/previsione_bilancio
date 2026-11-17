@@ -1,5 +1,5 @@
 import { Bucket, MonthLine } from '../../core/supabase';
-import { bucketChart, ChartMonth, lineChart, merchantChart, periodOptions, periodRange, savingsChart, spendingTree } from './chart-data';
+import { bucketChart, ChartMonth, lineChart, marginChart, merchantChart, periodOptions, periodRange, savingsChart, spendingTree } from './chart-data';
 
 const buckets = [
   { id: 'fm', name: 'Future me', target_pct: 15 },
@@ -48,12 +48,28 @@ describe('periodo', () => {
     expect(periodRange('m6', '2026-11-01', '2026-09-01')).toEqual({ from: '2026-09-01', to: '2026-11-01' });
     expect(periodRange('m12', '2027-03-01', '2026-09-01')).toEqual({ from: '2026-09-01', to: '2027-03-01' });
     expect(periodRange('m6', '2027-12-01', '2026-09-01')).toEqual({ from: '2027-07-01', to: '2027-12-01' });
+    expect(periodRange('f12', '2026-11-01', '2026-09-01')).toEqual({ from: '2026-11-01', to: '2027-10-01' });
     expect(periodRange('m6', '2026-11-01', null)).toEqual({ from: '2026-06-01', to: '2026-11-01' });
   });
 
   it('propone gli anni dall\'avvio al prossimo', () => {
-    expect(periodOptions('2027-02-01', '2026-09-01').map((o) => o.value)).toEqual(['y2026', 'y2027', 'y2028', 'm6', 'm12']);
-    expect(periodOptions('2026-11-01', null).map((o) => o.value)).toEqual(['y2026', 'y2027', 'm6', 'm12']);
+    expect(periodOptions('2027-02-01', '2026-09-01').map((o) => o.value)).toEqual(['y2026', 'y2027', 'y2028', 'm6', 'm12', 'f12']);
+    expect(periodOptions('2026-11-01', null).map((o) => o.value)).toEqual(['y2026', 'y2027', 'm6', 'm12', 'f12']);
+  });
+});
+
+describe('margine del mese', () => {
+  it('effettivo per i mesi chiusi, previsto dal mese in corso; trova il mese più stretto', () => {
+    const months = [
+      month('2026-10-01', [], { income_actual: 2000, expense_actual: -1500, saving_actual: 100, income_forecast: 2000, expense_forecast: -1000 }),
+      month('2026-11-01', [], { income_forecast: 2000, expense_forecast: -1800, saving_forecast: 100 }),
+      month('2026-12-01', [], { income_forecast: 2000, expense_forecast: -2600, saving_forecast: 100 }),
+    ];
+    const spec = marginChart(months, '2026-11-01');
+    expect(spec.series[0].values).toEqual([400, null, null]);
+    expect(spec.series[1].values).toEqual([null, 100, -700]);
+    expect(spec.summary).toContain('toglie');
+    expect(spec.summary).toContain('dicembre 2026');
   });
 });
 

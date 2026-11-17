@@ -54,8 +54,9 @@ export const formatPct = (value: number) => `${value.toLocaleString('it-IT', { m
 /** Mesi inclusi di un periodo ("m6", "m12" = ultimi mesi; "y2026" = anno), mai prima del mese di avvio. */
 export function periodRange(period: string, current: string, goLive: string | null): { from: string; to: string } {
   const n = Number(period.slice(1));
-  const from = period[0] === 'y' ? `${n}-01-01` : shiftMonth(current, 1 - n);
-  const to = period[0] === 'y' ? `${n}-12-01` : current;
+  // "f12": i prossimi mesi, a partire da quello in corso.
+  const from = period[0] === 'y' ? `${n}-01-01` : period[0] === 'f' ? current : shiftMonth(current, 1 - n);
+  const to = period[0] === 'y' ? `${n}-12-01` : period[0] === 'f' ? shiftMonth(current, n - 1) : current;
   return { from: goLive && goLive > from ? goLive : from, to };
 }
 
@@ -67,27 +68,98 @@ export function periodOptions(current: string, goLive: string | null): { value: 
     ...years.map((y) => ({ value: `y${y}`, label: `Anno ${y}` })),
     { value: 'm6', label: 'Ultimi 6 mesi' },
     { value: 'm12', label: 'Ultimi 12 mesi' },
+    { value: 'f12', label: 'Prossimi 12 mesi' },
   ];
 }
 
-/** Il Salvadanaio: l'effettivo fino a oggi, la previsione su tutto il periodo. */
-export function savingsChart(months: ChartMonth[], current: string): ChartSpec {
-  if (!months.some((m) => m.reserve_forecast !== null)) return empty('Nessun conto di riserva nel periodo.');
+/** Un saldo nel tempo: l'effettivo fino a oggi, la previsione su tutto il periodo (anche i mesi futuri). */
+function trendChart(
+  months: ChartMonth[],
+  current: string,
+  name: string,
+  actual: (m: ChartMonth) => number | null,
+  forecast: (m: ChartMonth) => number | null,
+  emptyText: string,
+): ChartSpec {
+  if (!months.some((m) => forecast(m) !== null)) return empty(emptyText);
   const now = months.filter((m) => m.month <= current).at(-1);
   const last = months[months.length - 1];
+  const [nowValue, lastValue] = [now ? actual(now) : null, forecast(last)];
   const parts = [
-    now && now.reserve_actual !== null ? `Salvadanaio a ${monthLabel(now.month).toLowerCase()}: ${formatCents(now.reserve_actual)}.` : '',
-    last.month > current && last.reserve_forecast !== null ? `Previsto a ${monthLabel(last.month).toLowerCase()}: ${formatCents(last.reserve_forecast)}.` : '',
+    now && nowValue !== null ? `${name} a ${monthLabel(now.month).toLowerCase()}: ${formatCents(nowValue)}.` : '',
+    last.month > current && lastValue !== null ? `Previsto a ${monthLabel(last.month).toLowerCase()}: ${formatCents(lastValue)}.` : '',
   ];
   return {
     form: 'line',
     unit: 'cents',
     labels: months.map((m) => shortMonth(m.month)),
     series: [
-      { label: 'Effettivo', slot: 1, values: months.map((m) => (m.month <= current ? m.reserve_actual : null)) },
-      { label: 'Previsto', slot: 0, dashed: true, values: months.map((m) => m.reserve_forecast) },
+      { label: 'Effettivo', slot: 1, values: months.map((m) => (m.month <= current ? actual(m) : null)) },
+      { label: 'Previsto', slot: 0, dashed: true, values: months.map(forecast) },
     ].filter((s) => s.values.some((v) => v !== null)),
     summary: parts.filter(Boolean).join(' '),
+  };
+}
+
+/** Il Salvadanaio: l'effettivo fino a oggi, la previsione su tutto il periodo. */
+export function savingsChart(months: ChartMonth[], current: string): ChartSpec {
+  return trendChart(months, current, 'Salvadanaio', (m) => m.reserve_actual, (m) => m.reserve_forecast, 'Nessun conto di riserva nel periodo.');
+}
+
+/** Il disponibile a fine mese, come nel riepilogo della vista mese. */
+export function balanceChart(months: ChartMonth[], current: string): ChartSpec {
+  return trendChart(months, current, 'Disponibile', (m) => m.end_actual, (m) => m.end_forecast, 'Il disponibile non si calcola: imposta il mese di avvio.');
+}
+
+const plus = (a: number | null, b: number | null) => (a === null ? null : a + (b ?? 0));
+
+/** Tutto quello che hai: disponibile più Salvadanaio (senza conti di riserva, solo il disponibile). */
+export function totalChart(months: ChartMonth[], current: string): ChartSpec {
+  return trendChart(
+    months,
+    current,
+    'Totale',
+    (m) => plus(m.end_actual, m.reserve_actual),
+    (m) => plus(m.end_forecast, m.reserve_forecast),
+    'Il totale non si calcola: imposta il mese di avvio.',
+  );
+}
+
+/**
+ * Quanto ogni mese aggiunge o toglie al disponibile: entrate meno uscite e accantonamenti.
+ * I mesi chiusi con l'effettivo, quello in corso e i futuri con il previsto.
+ */
+export function marginChart(months: ChartMonth[], current: string): ChartSpec {
+  if (!months.length) return empty();
+  const margin = (m: ChartMonth, k: 'forecast' | 'actual') => m[`income_${k}`] + m[`expense_${k}`] - m[`saving_${k}`];
+  const planned = months.filter((m) => m.month >= current);
+  const worst = planned.length ? planned.reduce((a, b) => (margin(b, 'forecast') < margin(a, 'forecast') ? b : a)) : null;
+  const sum = planned.reduce((s, m) => s + margin(m, 'forecast'), 0);
+  return {
+    form: 'columns',
+    unit: 'cents',
+    labels: months.map((m) => shortMonth(m.month)),
+    series: [
+      { label: 'Effettivo', slot: 1, values: months.map((m) => (m.month < current ? margin(m, 'actual') : null)) },
+      { label: 'Previsto', slot: 0, values: months.map((m) => (m.month >= current ? margin(m, 'forecast') : null)) },
+    ].filter((s) => s.values.some((v) => v !== null)),
+    summary: worst
+      ? `Da ${monthLabel(planned[0].month).toLowerCase()} in poi il previsto ${sum < 0 ? 'toglie' : 'aggiunge'} ${formatCents(Math.abs(sum))} al disponibile. ` +
+        `Il mese più stretto: ${monthLabel(worst.month).toLowerCase()}, ${formatCents(margin(worst, 'forecast'))}.`
+      : 'Entrate meno uscite e accantonamenti, mese per mese.',
+  };
+}
+
+/** Le rate che cadono in ogni mese, anche nei futuri: si vede quando finiscono. */
+export function debtChart(months: ChartMonth[]): ChartSpec {
+  const withDebt = months.filter((m) => m.debt_cents);
+  if (!withDebt.length) return empty('Nessuna rata nel periodo.');
+  return {
+    form: 'columns',
+    unit: 'cents',
+    labels: months.map((m) => shortMonth(m.month)),
+    series: [{ label: 'Rate', slot: 3, values: months.map((m) => m.debt_cents) }],
+    summary: `Rate nel periodo: ${formatCents(withDebt.reduce((s, m) => s + m.debt_cents, 0))}. Ultimo mese con rate: ${monthLabel(withDebt.at(-1)!.month).toLowerCase()}.`,
   };
 }
 

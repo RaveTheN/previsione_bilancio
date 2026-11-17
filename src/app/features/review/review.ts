@@ -55,6 +55,7 @@ type ReviewEvent = IngestEvent & { parse_rules: Pick<ParseRule, 'action' | 'amou
       @if (events().length) {
         <div class="actions tools">
           <a mat-button routerLink="/regole">Regole notifiche</a>
+          <button mat-button type="button" [disabled]="!online()" (click)="dismissAll()">Elimina tutte</button>
           <button mat-stroked-button type="button" [disabled]="!online()" (click)="retryAll()">Riprova tutte</button>
         </div>
       }
@@ -105,8 +106,10 @@ type ReviewEvent = IngestEvent & { parse_rules: Pick<ParseRule, 'action' | 'amou
     li {
       display: grid;
       gap: 4px;
-      padding: 8px 0;
-      border-bottom: 1px solid var(--mat-sys-outline-variant);
+      margin-bottom: 8px;
+      padding: 12px;
+      border-radius: 12px;
+      background: var(--mat-sys-surface-container);
     }
     .line {
       display: flex;
@@ -125,6 +128,7 @@ type ReviewEvent = IngestEvent & { parse_rules: Pick<ParseRule, 'action' | 'amou
     }
     .actions {
       display: flex;
+      flex-wrap: wrap;
       gap: 8px;
     }
     .actions button,
@@ -218,6 +222,13 @@ export class Review {
 
   protected async dismiss(e: IngestEvent): Promise<void> {
     this.done(await supabase.from('ingest_events').delete().eq('id', e.id), 'Non eliminata');
+  }
+
+  /** Solo quelle in elenco: una notifica arrivata nel frattempo resta. */
+  protected async dismissAll(): Promise<void> {
+    const ids = this.events().map((e) => e.id);
+    if (!confirm(`Eliminare ${ids.length === 1 ? 'la notifica' : `tutte le ${ids.length} notifiche`} da rivedere? Non si recuperano.`)) return;
+    this.done(await supabase.from('ingest_events').delete().in('id', ids), 'Non eliminate');
   }
 
   protected async accept(t: Transaction): Promise<void> {

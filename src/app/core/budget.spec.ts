@@ -1,4 +1,4 @@
-import { bucketLeft, inputToForecast, lineKind, moveLine, signedText } from './budget';
+import { bucketLeft, inputToForecast, lineKind, moveLine, repeatMonths, signedText } from './budget';
 import { MonthLine } from './supabase';
 
 const line = (id: string, bucket_id: string | null, forecast: number, actual: number): MonthLine => ({
@@ -68,5 +68,13 @@ describe('previsione nei campi', () => {
     [-5000, 'income'],
   ])('%i (%s) si rilegge uguale', (cents, kind) => {
     expect(inputToForecast(signedText(cents, kind), kind)).toBe(cents);
+  });
+});
+
+describe('repeatMonths', () => {
+  it('trimestre e semestre per due anni, anno prossimo una volta sola', () => {
+    expect(repeatMonths('2026-11-01', 3)).toEqual(['2027-02-01', '2027-05-01', '2027-08-01', '2027-11-01', '2028-02-01', '2028-05-01', '2028-08-01', '2028-11-01']);
+    expect(repeatMonths('2026-11-01', 6)).toEqual(['2027-05-01', '2027-11-01', '2028-05-01', '2028-11-01']);
+    expect(repeatMonths('2026-11-01', 12)).toEqual(['2027-11-01']);
   });
 });

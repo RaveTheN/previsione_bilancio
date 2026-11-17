@@ -1,4 +1,4 @@
-import { searchFilter } from './transactions';
+import { searchDate, searchFilter } from './transactions';
 
 describe('filtro della ricerca', () => {
   it('cerca nel nome della banca e nella nota, con il testo tra virgolette', () => {
@@ -15,5 +15,18 @@ describe('filtro della ricerca', () => {
 
   it('le virgolette non chiudono il valore', () => {
     expect(searchFilter('a"b\\c', [], [])).toContain('"%abc%"');
+  });
+});
+
+describe('ricerca: conti, tag e date', () => {
+  it('aggiunge conti e movimenti trovati per tag', () => {
+    expect(searchFilter('bar', [], [], ['a1'], ['t1', 't2'])).toContain('account_id.in.(a1),id.in.(t1,t2)');
+  });
+
+  it('legge una data, con o senza anno', () => {
+    expect(searchDate('5/11', '2026')).toBe('2026-11-05');
+    expect(searchDate('12/01/2027')).toBe('2027-01-12');
+    expect(searchDate('12,50')).toBeNull();
+    expect(searchFilter('5/11/2026', [], [])).toContain('booking_date.eq.2026-11-05');
   });
 });

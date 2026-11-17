@@ -1,8 +1,7 @@
 import { Component, computed, effect, inject, signal, untracked } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router } from '@angular/router';
-import { map } from 'rxjs';
-import { Ledger } from '../../core/ledger';
+import { lastDay, Ledger, todayIso } from '../../core/ledger';
 import { formatCents, parseAmount } from '../../core/money';
 import { errorText, supabase, Transaction } from '../../core/supabase';
 import { Sync } from '../../core/sync';
@@ -29,17 +28,30 @@ type Found = Transaction & { budget_lines?: { name: string; bucket_id: string | 
 
 const MAX_FOUND = 100;
 
+/** Testo cercato dentro un filtro PostgREST: tra virgolette, perché virgole e punti lì hanno un significato. */
+const likeText = (text: string) => `"%${text.trim().replace(/["\\]/g, '')}%"`;
+
+/** "12/11" o "12/11/2026" → data; senza anno vale quello in corso. */
+export function searchDate(word: string, year = todayIso().slice(0, 4)): string | null {
+  const m = /^(\d{1,2})\/(\d{1,2})(?:\/(\d{4}))?$/.exec(word);
+  return m ? `${m[3] ?? year}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}` : null;
+}
+
 /**
- * Filtro PostgREST (or) della ricerca: nome della banca, nota, esercenti e righe con quel nome,
- * importo (in entrata o in uscita). Il testo va tra virgolette: virgole e punti hanno un significato nel filtro.
+ * Filtro PostgREST (or) di una parola della ricerca: nome della banca, nota, esercenti, righe, conti
+ * e movimenti (per i tag) trovati con quella parola, importo (in entrata o in uscita), data.
  */
-export function searchFilter(text: string, merchantIds: string[], lineIds: string[]): string {
-  const like = `"%${text.trim().replace(/["\\]/g, '')}%"`;
+export function searchFilter(text: string, merchantIds: string[], lineIds: string[], accountIds: string[] = [], txIds: string[] = []): string {
+  const like = likeText(text);
   const parts = [`merchant_raw.ilike.${like}`, `note.ilike.${like}`];
   if (merchantIds.length) parts.push(`merchant_id.in.(${merchantIds.join(',')})`);
   if (lineIds.length) parts.push(`line_id.in.(${lineIds.join(',')})`);
+  if (accountIds.length) parts.push(`account_id.in.(${accountIds.join(',')})`);
+  if (txIds.length) parts.push(`id.in.(${txIds.join(',')})`);
   const cents = parseAmount(text);
   if (cents) parts.push(`amount_cents.in.(${cents},${-cents})`);
+  const date = searchDate(text.trim());
+  if (date) parts.push(`booking_date.eq.${date}`);
   return parts.join(',');
 }
 
@@ -64,7 +76,7 @@ function byDay<T extends Transaction>(list: T[], withYear: boolean) {
       class="search"
       type="search"
       autocomplete="off"
-      placeholder="Cerca in tutti i mesi: esercente, nota, riga, importo"
+      placeholder="Cerca in tutti i mesi"
       aria-label="Cerca tra i movimenti"
       [value]="query()"
       (input)="query.set($any($event.target).value)"
@@ -75,14 +87,64 @@ function byDay<T extends Transaction>(list: T[], withYear: boolean) {
         <p class="warn" role="status">{{ searchError() }}</p>
       } @else if (found(); as f) {
         <p class="note" role="status">
-          {{ f.length === 0 ? 'Nessun movimento trovato.' : f.length >= max ? 'I ' + max + ' più recenti:' : f.length + (f.length === 1 ? ' movimento' : ' movimenti') }}
+          {{ f.length === 0 ? 'Nessun movimento trovato.' : f.length >= max ? 'I ' + max + ' più recenti' : f.length + (f.length === 1 ? ' movimento' : ' movimenti') }}
+          @if (f.length) {
+            · totale {{ fmt(foundTotal()) }}
+          }
         </p>
       }
     } @else {
+      <p class="note hint">Più parole restringono la ricerca: esercente, nota, riga, tag, conto, importo (12,50) o data (12/11).</p>
+    }
+
+    <div class="bar">
       <label class="filter">
         <input type="checkbox" [checked]="onlyUnassigned()" (change)="toggleFilter()" />
         Solo da assegnare
       </label>
+      @if (!searching()) {
+        <div class="segmented" role="group" aria-label="Vista dei movimenti">
+          <button type="button" [class.on]="!calendarView()" [attr.aria-pressed]="!calendarView()" (click)="setView(false)">Lista</button>
+          <button type="button" [class.on]="calendarView()" [attr.aria-pressed]="calendarView()" (click)="setView(true)">Calendario</button>
+        </div>
+      }
+    </div>
+
+    @if (showCalendar()) {
+      <div class="calendar" role="group" aria-label="Calendario del mese">
+        @for (w of weekdays; track w) {
+          <span class="weekday" aria-hidden="true">{{ w }}</span>
+        }
+        @for (c of calendar(); track $index) {
+          @if (c) {
+            <button
+              type="button"
+              class="cell"
+              [class.on]="c.date === selectedDay()"
+              [class.today]="c.date === today"
+              [attr.aria-pressed]="c.date === selectedDay()"
+              [attr.aria-label]="c.label"
+              (click)="day.set(c.date === selectedDay() ? '' : c.date)"
+            >
+              <span class="num">{{ c.day }}</span>
+              @for (name of c.names; track $index) {
+                <span class="name">{{ name }}</span>
+              }
+              @if (c.items.length) {
+                <span class="count">{{ c.items.length }} mov.</span>
+                <span class="total" [class.in]="c.total > 0">{{ euros(c.total) }}</span>
+              }
+            </button>
+          } @else {
+            <span></span>
+          }
+        }
+      </div>
+      @if (!selectedDay()) {
+        <p class="note">Tocca un giorno per vedere i suoi movimenti.</p>
+      } @else if (!days().length) {
+        <p class="note">Nessun movimento in questo giorno.</p>
+      }
     }
 
     @if (ledger.loadError()) {
@@ -124,7 +186,7 @@ function byDay<T extends Transaction>(list: T[], withYear: boolean) {
         </ul>
       </section>
     } @empty {
-      @if (!searching()) {
+      @if (!searching() && !showCalendar()) {
         <p class="note">{{ onlyUnassigned() ? 'Niente da assegnare in questo mese.' : 'Nessun movimento in questo mese.' }}</p>
       }
     }
@@ -142,6 +204,107 @@ function byDay<T extends Transaction>(list: T[], withYear: boolean) {
       background: var(--mat-sys-surface);
       color: var(--mat-sys-on-surface);
       font: var(--mat-sys-body-large);
+    }
+    .hint {
+      margin: 0;
+      font: var(--mat-sys-body-small);
+    }
+    .bar {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+    }
+    .segmented {
+      display: flex;
+    }
+    .segmented button {
+      min-height: 40px;
+      padding: 0 14px;
+      border: 1px solid var(--mat-sys-outline-variant);
+      background: none;
+      color: var(--mat-sys-on-surface);
+      font: var(--mat-sys-label-large);
+      cursor: pointer;
+    }
+    .segmented button:first-child {
+      border-radius: 20px 0 0 20px;
+    }
+    .segmented button:last-child {
+      border-left: 0;
+      border-radius: 0 20px 20px 0;
+    }
+    .segmented .on {
+      background: var(--mat-sys-primary-container);
+      color: var(--mat-sys-on-primary-container);
+    }
+    /* Sette colonne uguali: da lunedì a domenica. */
+    .calendar {
+      display: grid;
+      grid-template-columns: repeat(7, minmax(0, 1fr));
+      gap: 4px;
+    }
+    .weekday {
+      font: var(--mat-sys-label-small);
+      color: var(--mat-sys-on-surface-variant);
+      text-align: center;
+    }
+    .cell {
+      display: grid;
+      align-content: start;
+      gap: 2px;
+      min-height: 64px;
+      padding: 4px;
+      border: 1px solid transparent;
+      border-radius: 8px;
+      background: var(--mat-sys-surface-container);
+      color: inherit;
+      font: var(--mat-sys-label-small);
+      text-align: left;
+      cursor: pointer;
+    }
+    .cell.today .num {
+      color: var(--mat-sys-primary);
+      font-weight: 700;
+    }
+    .cell.on {
+      border-color: var(--mat-sys-primary);
+      background: var(--mat-sys-primary-container);
+      color: var(--mat-sys-on-primary-container);
+    }
+    .cell .num {
+      font: var(--mat-sys-label-large);
+    }
+    .cell .name,
+    .cell .count {
+      overflow: hidden;
+      color: var(--mat-sys-on-surface-variant);
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    /* Su schermo stretto basta il numero dei movimenti; da 600 px ci stanno anche i nomi. */
+    .cell .name {
+      display: none;
+    }
+    .cell .total {
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .cell .total.in {
+      color: var(--mat-sys-primary);
+    }
+    @media (min-width: 600px) {
+      .cell {
+        min-height: 88px;
+        padding: 6px;
+      }
+      .cell .name {
+        display: block;
+      }
+      .cell .count {
+        display: none;
+      }
     }
     .filter {
       display: flex;
@@ -239,10 +402,16 @@ export class Transactions {
   private readonly router = inject(Router);
   protected readonly fmt = formatCents;
 
-  protected readonly onlyUnassigned = toSignal(
-    inject(ActivatedRoute).queryParamMap.pipe(map((p) => p.get('filtro') === 'da-assegnare')),
-    { initialValue: false },
-  );
+  private readonly params = toSignal(inject(ActivatedRoute).queryParamMap);
+  protected readonly onlyUnassigned = computed(() => this.params()?.get('filtro') === 'da-assegnare');
+  /** La vista sta nell'indirizzo: si ritrova tornando indietro, e la pagina Mese ci arriva diretta. */
+  protected readonly calendarView = computed(() => this.params()?.get('vista') === 'calendario');
+  protected readonly showCalendar = computed(() => this.calendarView() && !this.searching());
+  protected readonly weekdays = ['lun', 'mar', 'mer', 'gio', 'ven', 'sab', 'dom'];
+  protected readonly today = todayIso();
+  /** Giorno scelto nel calendario: all'inizio oggi; in un altro mese non vale. */
+  protected readonly day = signal(this.today);
+  protected readonly selectedDay = computed(() => (this.day().startsWith(this.ledger.month().slice(0, 7)) ? this.day() : ''));
 
   private readonly pendingIds = computed(
     () => new Set(this.sync.ops().flatMap((op) => (op.kind === 'upsert' ? [op.row['id']] : []))),
@@ -256,15 +425,45 @@ export class Transactions {
   protected readonly max = MAX_FOUND;
   private lastSearch = 0;
 
+  /** I movimenti del mese, con il filtro "da assegnare". */
+  private readonly monthItems = computed(() => this.ledger.transactions().filter((t) => !this.onlyUnassigned() || this.isUnassigned(t)));
+
   protected readonly days = computed(() => {
     if (this.searching()) return byDay(this.found() ?? [], true);
-    return byDay(this.ledger.transactions().filter((t) => !this.onlyUnassigned() || this.isUnassigned(t)), false);
+    return byDay(this.showCalendar() ? this.monthItems().filter((t) => t.booking_date === this.selectedDay()) : this.monthItems(), false);
   });
+
+  protected readonly foundTotal = computed(() => (this.found() ?? []).reduce((s, t) => s + t.amount_cents, 0));
+
+  /** Le caselle del mese, da lunedì: null per i giorni vuoti prima del primo. */
+  protected readonly calendar = computed(() => {
+    const month = this.ledger.month();
+    const offset = (new Date(month + 'T12:00:00').getDay() + 6) % 7;
+    const cells = Array.from({ length: Number(lastDay(month).slice(8)) }, (_, i) => {
+      const date = month.slice(0, 8) + String(i + 1).padStart(2, '0');
+      const items = this.monthItems().filter((t) => t.booking_date === date);
+      const total = items.reduce((s, t) => s + t.amount_cents, 0);
+      const names = items.slice(0, 2).map((t) => (t.transfer_group_id ? this.transferTitle(t) : this.title(t)));
+      const label = `${i + 1}: ${items.length ? `${items.length} movimenti, totale ${formatCents(total)}` : 'nessun movimento'}`;
+      return { date, day: i + 1, items, total, names, label };
+    });
+    return [...Array<null>(offset).fill(null), ...cells];
+  });
+
+  /** Nel quadratino: euro interi con il segno, senza simbolo. */
+  protected euros(cents: number): string {
+    return Math.round(cents / 100).toLocaleString('it-IT', { signDisplay: 'exceptZero' });
+  }
+
+  protected setView(calendar: boolean): void {
+    void this.router.navigate([], { queryParams: { vista: calendar ? 'calendario' : null }, queryParamsHandling: 'merge' });
+  }
 
   constructor() {
     // Si rifà anche dopo un salvataggio, così i risultati modificati si aggiornano.
     effect((onCleanup) => {
       const text = this.query().trim();
+      this.onlyUnassigned();
       this.sync.synced();
       if (text.length < 2) return;
       const timer = setTimeout(() => untracked(() => void this.search(text)), 300);
@@ -274,18 +473,28 @@ export class Transactions {
 
   private async search(text: string): Promise<void> {
     const request = ++this.lastSearch;
-    const lower = text.toLowerCase();
-    const merchantIds = this.ledger.merchants().filter((m) => m.name.toLowerCase().includes(lower)).map((m) => m.id);
-    const lines = await supabase.from('budget_lines').select('id').ilike('name', `%${text}%`).limit(200);
-    const res = lines.error
-      ? lines
-      : await supabase
-          .from('transactions')
-          .select('*, transaction_tags(tag_id), budget_lines(name, bucket_id)')
-          .or(searchFilter(text, merchantIds, lines.data.map((l) => l.id)))
-          .order('booking_date', { ascending: false })
-          .order('occurred_at', { ascending: false })
-          .limit(MAX_FOUND);
+    // Ogni parola deve trovarsi da qualche parte nel movimento: "amazon 12,50" restringe.
+    const words = text.toLowerCase().split(/\s+/).filter(Boolean);
+    const has = (name: string, w: string) => name.toLowerCase().includes(w);
+    const tagIds = this.ledger.tags().filter((t) => words.some((w) => has(t.name, w))).map((t) => t.id);
+    const [lines, tagged] = await Promise.all([
+      supabase.from('budget_lines').select('id, name').or(words.map((w) => `name.ilike.${likeText(w)}`).join(',')).limit(500),
+      // shortcut: al massimo 300 movimenti per tag; oltre, la ricerca per tag va spostata in una funzione del database.
+      tagIds.length ? supabase.from('transaction_tags').select('transaction_id, tag_id').in('tag_id', tagIds).limit(300) : null,
+    ]);
+    let res: { data: unknown; error: { message: string } | null; status: number } = lines;
+    if (!lines.error) {
+      let q = supabase.from('transactions').select('*, transaction_tags(tag_id), budget_lines(name, bucket_id)');
+      for (const w of words) {
+        const ids = <T extends { id: string; name: string }>(list: T[]) => list.filter((x) => has(x.name, w)).map((x) => x.id);
+        const wordTags = new Set(ids(this.ledger.tags()));
+        const txIds = (tagged?.data ?? []).filter((x) => wordTags.has(x.tag_id)).map((x) => x.transaction_id);
+        // Più "or" nella stessa richiesta valgono in "and".
+        q = q.or(searchFilter(w, ids(this.ledger.merchants()), ids(lines.data), ids(this.ledger.accounts()), txIds));
+      }
+      if (this.onlyUnassigned()) q = q.is('line_id', null).is('transfer_group_id', null);
+      res = await q.order('booking_date', { ascending: false }).order('occurred_at', { ascending: false }).limit(MAX_FOUND);
+    }
     // Una risposta lenta di una ricerca superata non sovrascrive quella mostrata.
     if (request !== this.lastSearch) return;
     this.searchError.set(res.error ? 'Ricerca non riuscita: ' + errorText(res) : '');
@@ -320,6 +529,6 @@ export class Transactions {
   }
 
   protected toggleFilter(): void {
-    void this.router.navigate([], { queryParams: { filtro: this.onlyUnassigned() ? null : 'da-assegnare' } });
+    void this.router.navigate([], { queryParams: { filtro: this.onlyUnassigned() ? null : 'da-assegnare' }, queryParamsHandling: 'merge' });
   }
 }

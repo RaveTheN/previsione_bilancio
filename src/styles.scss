@@ -21,7 +21,18 @@ html {
   );
 }
 
+// iOS ingrandisce la pagina quando si tocca un campo con testo sotto i 16 px, e non torna indietro
+// da solo (la barra in basso finisce fuori posto): sui dispositivi a tocco i campi stanno a 16 px.
+@media (pointer: coarse) {
+  input,
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}
+
 body {
+  -webkit-tap-highlight-color: transparent;
   background-color: var(--mat-sys-surface);
   color: var(--mat-sys-on-surface);
   font: var(--mat-sys-body-medium);

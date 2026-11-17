@@ -81,6 +81,33 @@ export async function writeByName(month: string, name: string, bucketId: string 
   return await supabase.from('budget_lines').upsert(row, { onConflict: 'user_id,month,name' });
 }
 
+/** Ogni quanti mesi si ripete una riga nuova: trimestre, semestre, oppure una volta sola tra un anno. */
+export const REPEATS = [
+  { step: 3, label: 'Ripeti ogni trimestre' },
+  { step: 6, label: 'Ripeti ogni semestre' },
+  { step: 12, label: 'Ripeti anno prossimo' },
+] as const;
+
+/** I mesi in cui la riga si ripete: per due anni; con 12 solo lo stesso mese dell'anno prossimo. */
+export function repeatMonths(from: string, step: number): string[] {
+  return Array.from({ length: step === 12 ? 1 : 24 / step }, (_, i) => shiftMonth(from, step * (i + 1)));
+}
+
+/**
+ * Scrive la riga nei mesi in cui si ripete. Va chiamata prima di aggiungerla al mese `from`:
+ * i mesi fino a quello dopo l'ultima ripetizione nascono qui, senza la riga; nati dopo, la
+ * copierebbero dal mese precedente e si ripeterebbe ogni mese.
+ */
+export async function repeatLine(from: string, step: number, line: ForecastLine): Promise<Result> {
+  const months = repeatMonths(from, step);
+  for (let m = shiftMonth(from, 1); m <= shiftMonth(months[months.length - 1], 1); m = shiftMonth(m, 1)) {
+    const ensured = await supabase.rpc('ensure_month_lines', { p_month: m });
+    if (ensured.error) return ensured;
+  }
+  const rows = months.map((month) => ({ month, name: line.name, bucket_id: line.bucket_id, amount_cents: line.forecast, sort_order: line.sort_order, over_is_good: line.over_is_good }));
+  return await supabase.from('budget_lines').upsert(rows, { onConflict: 'user_id,month,name' });
+}
+
 export interface ForecastLine {
   name: string;
   bucket_id: string | null;

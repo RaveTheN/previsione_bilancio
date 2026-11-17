@@ -18,11 +18,11 @@ import { errorText, InboxName, Merchant, MerchantAlias, supabase } from '../../c
 
     <fieldset [disabled]="!online()">
       <section>
-        <h2>Da assegnare</h2>
+        <h2>Da assegnare · {{ inbox().length }}</h2>
         <p class="note">I nomi che arrivano da banca ed estratto. Collegali a un esercente con il nome che vuoi tu.</p>
         <ul>
           @for (i of inbox(); track i.key) {
-            <li>
+            <li class="card">
               <div class="line">
                 <span class="text">{{ i.example }}</span>
                 <span class="sub">{{ i.n }} mov. · {{ day(i.last_date) }}</span>
@@ -64,54 +64,80 @@ import { errorText, InboxName, Merchant, MerchantAlias, supabase } from '../../c
       </section>
 
       <section>
-        <h2>Esercenti</h2>
-        <p class="note">
-          La riga è un nome: ogni movimento va sulla riga con quel nome nel suo mese, se c'è (altrimenti resta da assegnare).
-          Vale subito per i movimenti ancora da assegnare e per quelli nuovi; quelli già assegnati non cambiano, e puoi sempre spostarli.
-        </p>
-        <p class="note">
-          Per un esercente che cambia da un acquisto all'altro (es. Amazon, a volte Fun e a volte Fundamentals) scegli «Chiedi ogni volta»:
-          ogni suo movimento resta da assegnare finché non scegli tu la riga, e assegnarne uno non tocca gli altri.
-        </p>
+        <h2>Esercenti · {{ ledger.merchants().length }}</h2>
+        <input
+          class="search"
+          type="search"
+          autocomplete="off"
+          placeholder="Cerca per nome, riga o nome della banca"
+          aria-label="Cerca tra gli esercenti"
+          [value]="query()"
+          (input)="query.set($any($event.target).value)"
+        />
+        <details class="help">
+          <summary>Come funzionano le regole</summary>
+          <p class="note">
+            La riga è un nome: ogni movimento va sulla riga con quel nome nel suo mese, se c'è (altrimenti resta da assegnare).
+            Vale subito per i movimenti ancora da assegnare e per quelli nuovi; quelli già assegnati non cambiano, e puoi sempre spostarli.
+          </p>
+          <p class="note">
+            Per un esercente che cambia da un acquisto all'altro (es. Amazon, a volte Fun e a volte Fundamentals) scegli «Chiedi ogni volta»:
+            ogni suo movimento resta da assegnare finché non scegli tu la riga, e assegnarne uno non tocca gli altri.
+          </p>
+        </details>
         <datalist id="nomi-righe">
           @for (n of lineNames(); track n) {
             <option [value]="n"></option>
           }
         </datalist>
         <ul>
-          @for (m of ledger.merchants(); track m.id) {
-            <li>
-              <input [value]="m.name" aria-label="Nome dell'esercente" (change)="update(m, { name: value($event) })" />
-              <label class="check">
-                <input type="checkbox" [checked]="m.ask_each_time" (change)="setAsk(m, $event)" />
-                Chiedi ogni volta (cambia da un acquisto all'altro)
-              </label>
-              @if (!m.ask_each_time) {
-                <div class="row">
-                  <input
-                    list="nomi-righe"
-                    autocomplete="off"
-                    placeholder="Riga (es. Benzina)"
-                    aria-label="Riga predefinita"
-                    [value]="m.default_line_name ?? ''"
-                    (change)="setLine(m, value($event))"
-                  />
-                </div>
-              }
-              <div class="aliases">
-                @for (a of aliasesOf(m.id); track a.id) {
-                  <span class="alias">
-                    {{ a.match_type === 'contains' ? 'contiene ' : '' }}{{ a.pattern }}
-                    <button type="button" class="icon" [attr.aria-label]="'Scollega ' + a.pattern" (click)="unlink(a)">×</button>
+          @for (m of merchants(); track m.id) {
+            <li class="card">
+              <!-- Chiuso si legge la regola; aperto si modifica. -->
+              <details>
+                <summary>
+                  <span class="avatar" aria-hidden="true">{{ m.name.charAt(0).toUpperCase() }}</span>
+                  <span class="who">
+                    <span class="text">{{ m.name }}</span>
+                    <span class="sub" [class.todo]="!m.ask_each_time && !m.default_line_name">{{ rule(m) }}</span>
                   </span>
-                }
-              </div>
-              <div class="actions">
-                <button mat-button type="button" [attr.aria-label]="'Elimina ' + m.name" (click)="remove(m)">Elimina</button>
-              </div>
+                </summary>
+                <div class="edit">
+                  <label>
+                    Nome
+                    <input [value]="m.name" (change)="update(m, { name: value($event) })" />
+                  </label>
+                  @if (!m.ask_each_time) {
+                    <label>
+                      Riga predefinita
+                      <input list="nomi-righe" autocomplete="off" placeholder="Es. Benzina" [value]="m.default_line_name ?? ''" (change)="setLine(m, value($event))" />
+                    </label>
+                  }
+                  <label class="check">
+                    <input type="checkbox" [checked]="m.ask_each_time" (change)="setAsk(m, $event)" />
+                    Chiedi ogni volta (cambia da un acquisto all'altro)
+                  </label>
+                  @if (aliasesOf(m.id).length) {
+                    <span class="sub">Nomi della banca collegati</span>
+                    <div class="aliases">
+                      @for (a of aliasesOf(m.id); track a.id) {
+                        <span class="alias">
+                          {{ a.match_type === 'contains' ? 'contiene ' : '' }}{{ a.pattern }}
+                          <button type="button" class="icon" [attr.aria-label]="'Scollega ' + a.pattern" (click)="unlink(a)">×</button>
+                        </span>
+                      }
+                    </div>
+                  }
+                  <div class="actions">
+                    <button mat-button type="button" [attr.aria-label]="'Elimina ' + m.name" (click)="remove(m)">Elimina</button>
+                  </div>
+                </div>
+              </details>
             </li>
           } @empty {
-            <p class="note">Ancora nessuno: nascono collegando un nome, o assegnando un movimento.</p>
+            <p class="note">
+              {{ query().trim() ? 'Nessun esercente trovato.' : 'Ancora nessuno: nascono collegando un nome, o assegnando un movimento.' }}
+            </p>
           }
         </ul>
       </section>
@@ -119,6 +145,7 @@ import { errorText, InboxName, Merchant, MerchantAlias, supabase } from '../../c
       @if (ignored().length) {
         <section>
           <h2>Ignorati</h2>
+          <p class="note">Nomi della banca che non sono esercenti: i loro movimenti si assegnano uno per uno.</p>
           <div class="aliases">
             @for (a of ignored(); track a.id) {
               <span class="alias">
@@ -160,11 +187,69 @@ import { errorText, InboxName, Merchant, MerchantAlias, supabase } from '../../c
       padding: 0;
       list-style: none;
     }
+    ul {
+      display: grid;
+      gap: 8px;
+    }
     li {
       display: grid;
       gap: 6px;
-      padding: 8px 0;
-      border-bottom: 1px solid var(--mat-sys-outline-variant);
+    }
+    .card {
+      padding: 8px 12px;
+      border-radius: 12px;
+      background: var(--mat-sys-surface-container);
+    }
+    summary {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-height: 48px;
+      cursor: pointer;
+      list-style: none;
+    }
+    summary::-webkit-details-marker {
+      display: none;
+    }
+    .help summary {
+      font: var(--mat-sys-label-large);
+      color: var(--mat-sys-primary);
+    }
+    .help p + p {
+      margin-top: 8px;
+    }
+    .avatar {
+      display: grid;
+      flex: none;
+      place-items: center;
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      background: var(--mat-sys-primary-container);
+      color: var(--mat-sys-on-primary-container);
+      font: var(--mat-sys-title-small);
+    }
+    .who {
+      display: grid;
+      min-width: 0;
+    }
+    .who .text {
+      font: var(--mat-sys-title-small);
+    }
+    .todo {
+      color: var(--mat-sys-tertiary);
+    }
+    .edit,
+    .edit label:not(.check) {
+      display: grid;
+      gap: 6px;
+    }
+    .edit {
+      gap: 10px;
+      padding: 8px 0 4px;
+    }
+    .edit label {
+      font: var(--mat-sys-label-large);
     }
     .line,
     .row,
@@ -212,6 +297,10 @@ import { errorText, InboxName, Merchant, MerchantAlias, supabase } from '../../c
       color: var(--mat-sys-on-surface);
       font: var(--mat-sys-body-large);
     }
+    input.search {
+      padding: 0 12px;
+      border-radius: 22px;
+    }
     .row select {
       flex: 1;
     }
@@ -258,6 +347,15 @@ export class Rubrica implements OnInit {
   protected readonly lineNames = computed(() =>
     [...new Set([...this.ledger.lines().map((l) => l.name), ...this.ledger.merchants().flatMap((m) => m.default_line_name ?? [])])].sort(),
   );
+  protected readonly query = signal('');
+  /** Gli esercenti che contengono il testo cercato nel nome, nella riga o in un nome della banca collegato. */
+  protected readonly merchants = computed(() => {
+    const q = this.query().trim().toLowerCase();
+    if (!q) return this.ledger.merchants();
+    const has = (text: string | null) => !!text?.toLowerCase().includes(q);
+    const byAlias = new Set(this.aliases().filter((a) => has(a.pattern)).map((a) => a.merchant_id));
+    return this.ledger.merchants().filter((m) => has(m.name) || has(m.default_line_name) || byAlias.has(m.id));
+  });
   protected readonly open = signal<string | null>(null);
   protected name = '';
   protected contains = false;
@@ -273,6 +371,10 @@ export class Rubrica implements OnInit {
 
   protected day(date: string | null): string {
     return date ? new Date(date + 'T12:00:00').toLocaleDateString('it-IT', { day: 'numeric', month: 'short' }) : '';
+  }
+
+  protected rule(m: Merchant): string {
+    return m.ask_each_time ? 'Chiedi ogni volta' : m.default_line_name ? '→ ' + m.default_line_name : 'Nessuna riga: i movimenti restano da assegnare';
   }
 
   protected aliasesOf(merchantId: string): MerchantAlias[] {
