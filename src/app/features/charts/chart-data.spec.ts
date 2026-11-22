@@ -1,3 +1,4 @@
+import { formatCents } from '../../core/money';
 import { Bucket, MonthLine } from '../../core/supabase';
 import {
   bucketChart,
@@ -383,6 +384,18 @@ describe('uscite giorno per giorno', () => {
     expect([total.line, total.dashed]).toEqual([true, true]);
     expect([total.values[2], total.values[11], total.values[12]]).toEqual([2000, 2700, null]);
     expect(spec.summary).toContain('Il giorno più caro: il 3');
+  });
+
+  it('con il previsto: il ritmo tratteggiato fino a fine mese, la cumulata piena e quanto resta al giorno', () => {
+    const spec = dailyChart(rows, '2026-11-01', '2026-11-12', 30000);
+    const [, total, pace] = spec.series;
+    expect([total.dashed, pace.dashed, pace.line]).toEqual([false, true, true]);
+    expect([pace.values[0], pace.values[14], pace.values[29]]).toEqual([1000, 15000, 30000]);
+    // Restano 273 € per i 19 giorni dal 12 al 30.
+    expect(spec.summary).toContain(`Restano ${formatCents(27300)} dei ${formatCents(30000)} previsti: ${formatCents(1437)} al giorno`);
+    // Un mese chiuso non ha un "al giorno"; sforato, lo dice.
+    expect(dailyChart(rows, '2026-10-01', '2026-11-12', 20000).summary).toMatch(/previsti\.$/);
+    expect(dailyChart(rows, '2026-10-01', '2026-11-12', 10000).summary).toContain(`Hai superato il previsto di ${formatCents(3000)}`);
   });
 
   it('un mese senza uscite non disegna nulla', () => {

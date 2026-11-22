@@ -55,12 +55,19 @@ export function searchFilter(text: string, merchantIds: string[], lineIds: strin
   return parts.join(',');
 }
 
+/** Uscite ed entrate di un giorno, separate: il netto nasconderebbe la spesa del giorno dello stipendio. I trasferimenti tra conti non contano. */
+export function dayTotals(items: Transaction[]): { expense: number; income: number } {
+  const sum = (sign: number) => items.filter((t) => !t.transfer_group_id && t.amount_cents * sign > 0).reduce((s, t) => s + t.amount_cents, 0);
+  return { expense: sum(-1), income: sum(1) };
+}
+
 function byDay<T extends Transaction>(list: T[], withYear: boolean) {
   const days = new Map<string, T[]>();
   for (const t of list) days.set(t.booking_date, [...(days.get(t.booking_date) ?? []), t]);
   return [...days].map(([date, items]) => ({
     date,
     items,
+    ...dayTotals(items),
     label: new Date(date + 'T12:00:00').toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'long', year: withYear ? 'numeric' : undefined }),
   }));
 }
@@ -135,7 +142,12 @@ function byDay<T extends Transaction>(list: T[], withYear: boolean) {
               }
               @if (c.items.length) {
                 <span class="count">{{ c.items.length }} mov.</span>
-                <span class="total" [class.in]="c.total > 0">{{ euros(c.total) }}</span>
+                @if (c.expense) {
+                  <span class="total">{{ euros(c.expense) }}</span>
+                }
+                @if (c.income) {
+                  <span class="total in">{{ euros(c.income) }}</span>
+                }
               }
             </button>
           } @else {
@@ -156,7 +168,17 @@ function byDay<T extends Transaction>(list: T[], withYear: boolean) {
 
     @for (day of days(); track day.date) {
       <section>
-        <h2>{{ day.label }}</h2>
+        <h2>
+          {{ day.label }}
+          <span class="day-total">
+            @if (day.expense) {
+              <span>{{ fmt(day.expense) }}</span>
+            }
+            @if (day.income) {
+              <span class="in">{{ fmt(day.income) }}</span>
+            }
+          </span>
+        </h2>
         <ul>
           @for (t of day.items; track t.id) {
             <li>
@@ -296,9 +318,16 @@ function byDay<T extends Transaction>(list: T[], withYear: boolean) {
       text-align: left;
       cursor: pointer;
     }
+    /* Oggi è un pallino pieno: il solo colore si confondeva con quello delle entrate. */
     .cell.today .num {
-      color: var(--mat-sys-primary);
+      justify-self: start;
+      min-width: 24px;
+      border-radius: 12px;
+      background: var(--mat-sys-primary);
+      color: var(--mat-sys-on-primary);
       font-weight: 700;
+      line-height: 24px;
+      text-align: center;
     }
     .cell.on {
       border-color: var(--mat-sys-primary);
@@ -349,9 +378,21 @@ function byDay<T extends Transaction>(list: T[], withYear: boolean) {
       height: 22px;
     }
     h2 {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      gap: 0 12px;
       margin: 8px 0 4px;
       font: var(--mat-sys-title-small);
       color: var(--mat-sys-on-surface-variant);
+    }
+    .day-total {
+      display: flex;
+      gap: 12px;
+      white-space: nowrap;
+    }
+    .day-total .in {
+      color: var(--mat-sys-primary);
     }
     ul {
       margin: 0;
@@ -564,10 +605,10 @@ export class Transactions {
     const cells = Array.from({ length: Number(lastDay(month).slice(8)) }, (_, i) => {
       const date = month.slice(0, 8) + String(i + 1).padStart(2, '0');
       const items = this.monthItems().filter((t) => t.booking_date === date);
-      const total = items.reduce((s, t) => s + t.amount_cents, 0);
+      const totals = dayTotals(items);
       const names = items.slice(0, 2).map((t) => (t.transfer_group_id ? this.transferTitle(t) : this.title(t)));
-      const label = `${i + 1}: ${items.length ? `${items.length} movimenti, totale ${formatCents(total)}` : 'nessun movimento'}`;
-      return { date, day: i + 1, items, total, names, label };
+      const label = `${i + 1}: ${items.length ? `${items.length} movimenti, uscite ${formatCents(totals.expense)}, entrate ${formatCents(totals.income)}` : 'nessun movimento'}`;
+      return { date, day: i + 1, items, ...totals, names, label };
     });
     return [...Array<null>(offset).fill(null), ...cells];
   });
@@ -582,6 +623,11 @@ export class Transactions {
   }
 
   constructor() {
+    // Dal grafico dei giorni: il giorno da aprire arriva nell'indirizzo.
+    effect(() => {
+      const day = this.params()?.get('giorno');
+      if (day) this.day.set(day);
+    });
     // Si rifà anche dopo un salvataggio, così i risultati modificati si aggiornano.
     effect((onCleanup) => {
       const text = this.query().trim();

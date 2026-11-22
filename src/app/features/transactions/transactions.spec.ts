@@ -1,4 +1,11 @@
-import { searchDate, searchFilter } from './transactions';
+import { Transaction } from '../../core/supabase';
+import { dayTotals, searchDate, searchFilter } from './transactions';
+
+it('totali del giorno: uscite ed entrate separate, senza i trasferimenti tra conti', () => {
+  const tx = (amount_cents: number, transfer_group_id: string | null = null) => ({ amount_cents, transfer_group_id }) as Transaction;
+  expect(dayTotals([tx(-1250), tx(-300), tx(185000), tx(200), tx(-50000, 'g'), tx(50000, 'g')])).toEqual({ expense: -1550, income: 185200 });
+  expect(dayTotals([])).toEqual({ expense: 0, income: 0 });
+});
 
 describe('filtro della ricerca', () => {
   it('cerca nel nome della banca e nella nota, con il testo tra virgolette', () => {

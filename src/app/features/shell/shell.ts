@@ -1,6 +1,6 @@
 import { Component, inject } from '@angular/core';
-import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
-import { Ledger } from '../../core/ledger';
+import { Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
+import { currentMonth, Ledger } from '../../core/ledger';
 import { Sync } from '../../core/sync';
 import { QuickAddLauncher } from '../quick-add/quick-add';
 
@@ -10,7 +10,7 @@ import { QuickAddLauncher } from '../quick-add/quick-add';
   imports: [RouterOutlet, RouterLink, RouterLinkActive],
   template: `
     <nav aria-label="Navigazione principale">
-      <a routerLink="/mese" routerLinkActive="active">
+      <a routerLink="/mese" routerLinkActive="active" (click)="today('/mese')">
         <svg viewBox="0 -960 960 960" aria-hidden="true">
           <path
             d="M200-80q-33 0-56.5-23.5T120-160v-560q0-33 23.5-56.5T200-800h40v-80h80v80h320v-80h80v80h40q33 0 56.5 23.5T840-720v560q0 33-23.5 56.5T760-80H200Zm0-80h560v-400H200v400Z"
@@ -34,7 +34,7 @@ import { QuickAddLauncher } from '../quick-add/quick-add';
         </svg>
         <span>Grafici</span>
       </a>
-      <a routerLink="/movimenti" routerLinkActive="active">
+      <a routerLink="/movimenti" routerLinkActive="active" (click)="today('/movimenti')">
         <svg viewBox="0 -960 960 960" aria-hidden="true">
           <path
             d="M280-600v-80h560v80H280Zm0 160v-80h560v80H280Zm0 160v-80h560v80H280ZM160-600q-17 0-28.5-11.5T120-640q0-17 11.5-28.5T160-680q17 0 28.5 11.5T200-640q0 17-11.5 28.5T160-600Zm0 160q-17 0-28.5-11.5T120-480q0-17 11.5-28.5T160-520q17 0 28.5 11.5T200-480q0 17-11.5 28.5T160-440Zm0 160q-17 0-28.5-11.5T120-320q0-17 11.5-28.5T160-360q17 0 28.5 11.5T200-320q0 17-11.5 28.5T160-280Z"
@@ -203,4 +203,10 @@ export class Shell {
   protected readonly quickAdd = inject(QuickAddLauncher);
   protected readonly sync = inject(Sync);
   protected readonly ledger = inject(Ledger);
+  private readonly router = inject(Router);
+
+  /** Toccare l'icona della sezione in cui sei già riporta al mese in corso; da un'altra sezione il mese resta quello lasciato. */
+  protected today(path: string): void {
+    if (this.router.url.startsWith(path)) this.ledger.month.set(currentMonth());
+  }
 }

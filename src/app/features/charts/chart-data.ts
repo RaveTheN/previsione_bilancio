@@ -415,14 +415,21 @@ export function compareChart(rows: DaySpend[], month: string, other: string, day
 /**
  * Quanto hai speso giorno per giorno, con la cumulata del mese: i giorni non ancora arrivati restano vuoti.
  * Solo le uscite: un rimborso non abbassa la colonna del suo giorno, che così non va mai sotto zero.
+ * Con il previsto delle stesse righe (planned, in positivo) c'è anche il ritmo previsto, una retta da zero
+ * al previsto di fine mese: la cumulata sopra la retta dice che stai spendendo più del previsto.
  */
-export function dailyChart(rows: DaySpend[], month: string, today: string): ChartSpec {
+export function dailyChart(rows: DaySpend[], month: string, today: string, planned = 0): ChartSpec {
   const days = Number(lastDay(month).slice(8));
   const perDay = Array.from({ length: days }, (_, i) => sumCents(rows.filter((r) => r.cents > 0 && r.date === month.slice(0, 8) + String(i + 1).padStart(2, '0'))));
   if (!perDay.some(Boolean)) return empty('Nessuna uscita nel mese.');
   const reached = Math.min(compareDay(month, today), month > today ? 0 : days);
   const total = sumCents(perDay.map((cents) => ({ cents })));
   const top = perDay.indexOf(Math.max(...perDay));
+  const paced = planned > 0;
+  const left = planned - total;
+  // Il budget giornaliero: quello che resta, diviso sui giorni da oggi (compreso) a fine mese.
+  const perDayLeft = today.startsWith(month.slice(0, 7)) ? `: ${formatCents(Math.round(left / (days - reached + 1)))} al giorno da oggi a fine mese` : '';
+  const pace = !paced ? '' : left < 0 ? ` Hai superato il previsto di ${formatCents(-left)}.` : ` Restano ${formatCents(left)} dei ${formatCents(planned)} previsti${perDayLeft}.`;
   let sum = 0;
   return {
     form: 'vbars',
@@ -430,11 +437,14 @@ export function dailyChart(rows: DaySpend[], month: string, today: string): Char
     labels: perDay.map((_, i) => String(i + 1)),
     series: [
       { label: 'Spesa del giorno', slot: 1, values: perDay.map((cents, i) => (i < reached || cents ? cents : null)) },
-      { label: 'Cumulata del mese', slot: 0, dashed: true, line: true, values: perDay.map((cents, i) => ((sum += cents), i < reached ? sum : null)) },
+      // Il tratteggio è il segno della previsione: con il ritmo previsto, la cumulata è piena.
+      { label: 'Cumulata del mese', slot: paced ? 2 : 0, dashed: !paced, line: true, values: perDay.map((cents, i) => ((sum += cents), i < reached ? sum : null)) },
+      ...(paced ? [{ label: 'Ritmo previsto', slot: 0, dashed: true, line: true, values: perDay.map((_, i) => Math.round((planned * (i + 1)) / days)) }] : []),
     ],
     summary:
       `${monthLabel(month)}: ${formatCents(total)}, in media ${formatCents(Math.round(total / Math.max(reached, 1)))} al giorno. ` +
-      `Il giorno più caro: il ${top + 1}, con ${formatCents(perDay[top])}.`,
+      `Il giorno più caro: il ${top + 1}, con ${formatCents(perDay[top])}.` +
+      pace,
   };
 }
 

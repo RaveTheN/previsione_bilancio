@@ -33,6 +33,11 @@ import { formatPct, PieNode, prune } from './chart-data';
       }
       @if (slices().length) {
         <div class="plot" (appLongPress)="hideAt($event)">
+          <!-- Nel buco della ciambella: dove sei e quanto vale. Sta dietro il disegno, che resta toccabile. -->
+          <div class="center" aria-hidden="true">
+            <span>{{ node().label }}</span>
+            <strong>{{ fmt(node().cents) }}</strong>
+          </div>
           <canvas #canvas role="img" [attr.aria-label]="node().label + '. ' + summary()"></canvas>
         </div>
         <ul>
@@ -98,6 +103,29 @@ import { formatPct, PieNode, prune } from './chart-data';
     .plot {
       position: relative;
       height: 240px;
+    }
+    .center {
+      position: absolute;
+      inset: 0;
+      display: grid;
+      place-content: center;
+      justify-items: center;
+      gap: 2px;
+      font: var(--mat-sys-label-medium);
+      text-align: center;
+    }
+    .center span {
+      max-width: 112px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .center strong {
+      font: var(--mat-sys-title-medium);
+      color: var(--mat-sys-on-surface);
+    }
+    canvas {
+      position: relative;
     }
     ul {
       margin: 0;
@@ -207,6 +235,8 @@ export class PieView {
           responsive: true,
           maintainAspectRatio: false,
           animation: false,
+          // Una ciambella: nel buco ci sta il totale.
+          cutout: '60%',
           plugins: {
             legend: { display: false },
             tooltip: {

@@ -78,7 +78,7 @@ function readExcluded(): Record<string, string[]> {
         <app-pie [tree]="t" />
       }
       @for (c of charts(); track c.heading) {
-        <app-chart [heading]="c.heading" [spec]="c.spec" (pick)="c.key === 'esercenti' && openMerchant($event)">
+        <app-chart [heading]="c.heading" [spec]="c.spec" (pick)="pick(c.key, $event)">
           @if (c.key === 'confronto') {
             <div class="months">
               <select aria-label="Mese da confrontare" [value]="monthA()" (change)="monthA.set($any($event.target).value)">
@@ -102,6 +102,12 @@ function readExcluded(): Record<string, string[]> {
                 }
               </select>
             </div>
+            <!-- Un collegamento a parte: sul telefono il tocco sulla colonna serve anche a leggere il valore. -->
+            @if (pickedDay(); as d) {
+              <button type="button" class="link" (click)="openDay(d)">Apri il {{ dayLabel(d) }} nei movimenti</button>
+            } @else {
+              <p class="note">Tocca un giorno per aprirlo nei movimenti.</p>
+            }
           }
           @if (c.key === 'esercenti') {
             <p class="note">Tocca un esercente per aprirlo in Rubrica, con la spesa mese per mese.</p>
@@ -156,6 +162,17 @@ function readExcluded(): Record<string, string[]> {
     .warn {
       color: var(--mat-sys-error);
     }
+    .link {
+      justify-self: start;
+      min-height: 44px;
+      padding: 0;
+      border: 0;
+      background: none;
+      color: var(--mat-sys-primary);
+      font: var(--mat-sys-label-large);
+      text-align: left;
+      cursor: pointer;
+    }
     /* Una colonna su iPhone, due su iPad, tre su PC. */
     .grid {
       display: grid;
@@ -194,6 +211,9 @@ export class Charts {
   protected readonly monthB = signal(shiftMonth(this.current, -1));
   protected readonly dayMonth = signal(this.current);
   private readonly days = signal<DaySpend[]>([]);
+  /** Il giorno toccato nell'andamento giornaliero: vale finché resti su quel mese. */
+  private readonly picked = signal('');
+  protected readonly pickedDay = computed(() => (this.picked().startsWith(this.dayMonth().slice(0, 8)) ? this.picked() : ''));
   /** Dal mese in corso indietro fino all'avvio (senza avvio, un anno). */
   protected readonly pastMonths = computed(() => {
     const first = this.goLive() ?? shiftMonth(this.current, -11);
@@ -221,6 +241,9 @@ export class Charts {
     // Le righe dei mesi a confronto possono non essere nel periodo scelto.
     const dayLines = lineGroups([...lines.filter((l) => l.bucket_id), ...this.days().flatMap((r) => (r.line ? { name: r.line, bucket_id: r.bucket_id } : []))], buckets);
     const days = (key: string) => this.days().filter((r) => !isExcluded(out(key), r.line, r.bucket_id));
+    // Il previsto delle stesse righe dell'andamento giornaliero; zero se il suo mese è fuori dal periodo caricato.
+    const dayLinesPlanned = data.months.find((m) => m.month === this.dayMonth())?.lines.filter((l) => l.bucket_id && !isExcluded(out('giornaliero'), l.name, l.bucket_id)) ?? [];
+    const planned = -dayLinesPlanned.reduce((s, l) => s + l.forecast, 0);
     return [
       {
         key: 'confronto',
@@ -228,7 +251,7 @@ export class Charts {
         spec: compareChart(days('confronto'), this.monthA(), this.monthB(), compareDay(this.monthA(), todayIso()), buckets),
         lines: dayLines,
       },
-      { key: 'giornaliero', heading: 'Andamento giornaliero', spec: dailyChart(days('giornaliero'), this.dayMonth(), todayIso()), lines: dayLines },
+      { key: 'giornaliero', heading: 'Andamento giornaliero', spec: dailyChart(days('giornaliero'), this.dayMonth(), todayIso(), planned), lines: dayLines },
       { key: 'disponibile', heading: 'Disponibile a fine mese', spec: balanceChart(data.months, this.current) },
       { key: 'risparmio', heading: 'Risparmio accumulato', spec: savingsChart(data.months, this.current) },
       { key: 'totale', heading: 'Totale: disponibile più Salvadanaio', spec: totalChart(data.months, this.current) },
@@ -287,6 +310,22 @@ export class Charts {
 
   protected openMerchant(name: string): void {
     void this.router.navigate(['/rubrica'], { queryParams: { cerca: name } });
+  }
+
+  /** Tocco su una barra: un esercente si apre subito, un giorno dell'andamento si ricorda per il suo collegamento. */
+  protected pick(key: string, label: string): void {
+    if (key === 'esercenti') this.openMerchant(label);
+    if (key === 'giornaliero') this.picked.set(this.dayMonth().slice(0, 8) + label.padStart(2, '0'));
+  }
+
+  protected dayLabel(date: string): string {
+    return new Date(date + 'T12:00:00').toLocaleDateString('it-IT', { day: 'numeric', month: 'long' });
+  }
+
+  /** Il giorno nel calendario dei movimenti, sul suo mese. */
+  protected openDay(date: string): void {
+    this.ledger.month.set(this.dayMonth());
+    void this.router.navigate(['/movimenti'], { queryParams: { vista: 'calendario', giorno: date } });
   }
 
   private async load(range: { from: string; to: string }): Promise<void> {
