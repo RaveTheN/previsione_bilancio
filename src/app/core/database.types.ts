@@ -301,14 +301,14 @@ isOneToOne: false
                   ]
                 },"transactions": {
                   Row: {
-                    "account_id": string,"amount_cents": number,"booking_date": string,"created_at": string,"id": string,"line_id": string | null,"merchant_id": string | null,"merchant_raw": string | null,"month": string | null,"note": string | null,"occurred_at": string,"review_reason": string | null,"source": string,"status": string,"transfer_group_id": string | null,"user_id": string,"value_date": string | null
+                    "account_id": string,"amount_cents": number,"booking_date": string,"created_at": string,"id": string,"line_id": string | null,"merchant_id": string | null,"merchant_raw": string | null,"month": string | null,"note": string | null,"occurred_at": string,"review_reason": string | null,"source": string,"split_group_id": string | null,"status": string,"transfer_group_id": string | null,"user_id": string,"value_date": string | null
                   }
                   ComputedFields: never
                   Insert: {
-                    "account_id": string,"amount_cents": number,"booking_date"?: string,"created_at"?: string,"id"?: string,"line_id"?: string | null,"merchant_id"?: string | null,"merchant_raw"?: string | null,"month"?: never,"note"?: string | null,"occurred_at"?: string,"review_reason"?: string | null,"source"?: string,"status"?: string,"transfer_group_id"?: string | null,"user_id"?: string,"value_date"?: string | null
+                    "account_id": string,"amount_cents": number,"booking_date"?: string,"created_at"?: string,"id"?: string,"line_id"?: string | null,"merchant_id"?: string | null,"merchant_raw"?: string | null,"month"?: never,"note"?: string | null,"occurred_at"?: string,"review_reason"?: string | null,"source"?: string,"split_group_id"?: string | null,"status"?: string,"transfer_group_id"?: string | null,"user_id"?: string,"value_date"?: string | null
                   }
                   Update: {
-                    "account_id"?: string,"amount_cents"?: number,"booking_date"?: string,"created_at"?: string,"id"?: string,"line_id"?: string | null,"merchant_id"?: string | null,"merchant_raw"?: string | null,"month"?: never,"note"?: string | null,"occurred_at"?: string,"review_reason"?: string | null,"source"?: string,"status"?: string,"transfer_group_id"?: string | null,"user_id"?: string,"value_date"?: string | null
+                    "account_id"?: string,"amount_cents"?: number,"booking_date"?: string,"created_at"?: string,"id"?: string,"line_id"?: string | null,"merchant_id"?: string | null,"merchant_raw"?: string | null,"month"?: never,"note"?: string | null,"occurred_at"?: string,"review_reason"?: string | null,"source"?: string,"split_group_id"?: string | null,"status"?: string,"transfer_group_id"?: string | null,"user_id"?: string,"value_date"?: string | null
                   }
                   Relationships: [
                     {
@@ -447,6 +447,9 @@ isOneToOne: false
                            },
 "reprocess_events":
 { Args: Record<PropertyKey, never>; Returns: Json
+                           },
+"reserve_side_line":
+{ Args: { "p_date": string,"p_user": string,"p_withdrawal": boolean }; Returns: string
                            },
 "savings_line":
 { Args: { "p_date": string,"p_user": string }; Returns: string

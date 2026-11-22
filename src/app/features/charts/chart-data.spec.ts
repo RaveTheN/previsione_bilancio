@@ -1,5 +1,26 @@
 import { Bucket, MonthLine } from '../../core/supabase';
-import { bucketChart, ChartMonth, lineChart, marginChart, merchantChart, periodOptions, periodRange, savingsChart, spendingTree } from './chart-data';
+import {
+  bucketChart,
+  ChartMonth,
+  clampRange,
+  compareChart,
+  compareDay,
+  dailyChart,
+  daySpending,
+  lineChart,
+  lineNames,
+  marginChart,
+  merchantChart,
+  monthRow,
+  periodOptions,
+  periodRange,
+  prune,
+  savingsChart,
+  spendingTree,
+  topGaps,
+  topMerchants,
+  withoutLines,
+} from './chart-data';
 
 const buckets = [
   { id: 'fm', name: 'Future me', target_pct: 15 },
@@ -53,20 +74,41 @@ describe('periodo', () => {
   });
 
   it('propone gli anni dall\'avvio al prossimo', () => {
-    expect(periodOptions('2027-02-01', '2026-09-01').map((o) => o.value)).toEqual(['y2026', 'y2027', 'y2028', 'm6', 'm12', 'f12']);
-    expect(periodOptions('2026-11-01', null).map((o) => o.value)).toEqual(['y2026', 'y2027', 'm6', 'm12', 'f12']);
+    expect(periodOptions('2027-02-01', '2026-09-01').map((o) => o.value)).toEqual(['y2026', 'y2027', 'y2028', 'm1', 'p1', 'm3', 'm6', 'm12', 'f12']);
+    expect(periodOptions('2026-11-01', null).map((o) => o.value)).toEqual(['y2026', 'y2027', 'm1', 'p1', 'm3', 'm6', 'm12', 'f12']);
+  });
+
+  it('questo mese e mese scorso sono un mese solo', () => {
+    expect(periodRange('m1', '2026-11-01', '2026-09-01')).toEqual({ from: '2026-11-01', to: '2026-11-01' });
+    expect(periodRange('p1', '2026-11-01', '2026-09-01')).toEqual({ from: '2026-10-01', to: '2026-10-01' });
+    // Il mese scorso prima dell'avvio non esiste: resta il mese di avvio.
+    expect(periodRange('p1', '2026-09-01', '2026-09-01')).toEqual({ from: '2026-09-01', to: '2026-09-01' });
+  });
+
+  it("un periodo scritto a mano: nell'ordine giusto, dall'avvio, al massimo tre anni", () => {
+    expect(clampRange('2026-12-01', '2026-10-01', null)).toEqual({ from: '2026-12-01', to: '2026-12-01' });
+    expect(clampRange('2026-01-01', '2026-10-01', '2026-09-01')).toEqual({ from: '2026-09-01', to: '2026-10-01' });
+    expect(clampRange('2026-01-01', '2030-01-01', null)).toEqual({ from: '2026-01-01', to: '2028-12-01' });
   });
 });
 
 describe('margine del mese', () => {
   it('effettivo per i mesi chiusi, previsto dal mese in corso; trova il mese più stretto', () => {
     const months = [
-      month('2026-10-01', [], { income_actual: 2000, expense_actual: -1500, saving_actual: 100, income_forecast: 2000, expense_forecast: -1000 }),
-      month('2026-11-01', [], { income_forecast: 2000, expense_forecast: -1800, saving_forecast: 100 }),
-      month('2026-12-01', [], { income_forecast: 2000, expense_forecast: -2600, saving_forecast: 100 }),
+      // Come nel database: uscite e accantonamenti negativi; i movimenti da assegnare contano nell'effettivo.
+      month('2026-10-01', [], {
+        income_actual: 2000,
+        expense_actual: -1500,
+        saving_actual: -100,
+        unassigned: { actual: -50, n: 1 },
+        income_forecast: 2000,
+        expense_forecast: -1000,
+      }),
+      month('2026-11-01', [], { income_forecast: 2000, expense_forecast: -1800, saving_forecast: -100 }),
+      month('2026-12-01', [], { income_forecast: 2000, expense_forecast: -2600, saving_forecast: -100 }),
     ];
     const spec = marginChart(months, '2026-11-01');
-    expect(spec.series[0].values).toEqual([400, null, null]);
+    expect(spec.series[0].values).toEqual([350, null, null]);
     expect(spec.series[1].values).toEqual([null, 100, -700]);
     expect(spec.summary).toContain('toglie');
     expect(spec.summary).toContain('dicembre 2026');
@@ -240,5 +282,134 @@ describe('torta delle uscite', () => {
 
   it('un periodo senza uscite è vuoto', () => {
     expect(spendingTree([], pieBuckets).children).toEqual([]);
+  });
+});
+
+describe('righe scelte per un grafico', () => {
+  const months = [
+    month('2026-10-01', [line('Stipendio', null, 200000, 200000), line('Spesa', 'fun', -30000, -40000), line('Cinema', 'fun', -5000, -10000), line('Casa', 'fm', -50000, -50000)], {
+      income_actual: 200000,
+      buckets: [
+        { bucket_id: 'fm', target_pct: 15, forecast_pct: 25, actual_pct: 25 },
+        { bucket_id: 'fun', target_pct: 35, forecast_pct: 17.5, actual_pct: 25 },
+      ],
+    }),
+  ];
+
+  it('senza esclusioni restano i numeri del database', () => {
+    expect(withoutLines(months, new Set())).toBe(months);
+  });
+
+  it('una riga esclusa esce dai grafici, e il suo secchio si ricalcola sulle entrate', () => {
+    const [m] = withoutLines(months, new Set(['Cinema']));
+    expect(m.lines.map((l) => l.name)).toEqual(['Stipendio', 'Spesa', 'Casa']);
+    expect(m.buckets.map((b) => b.actual_pct)).toEqual([25, 20]);
+    expect(lineChart([m], 'expense').labels).not.toContain('Cinema');
+  });
+
+  it('propone le righe dei secchi, oppure le entrate, in ordine alfabetico', () => {
+    expect(lineNames(months, 'expense')).toEqual(['Casa', 'Cinema', 'Spesa']);
+    expect(lineNames(months, 'income')).toEqual(['Stipendio']);
+  });
+
+  it('gli esercenti si sommano dalle uscite per riga; senza nome e rimborsi netti restano fuori', () => {
+    const row = (name: string, merchant: string | null, cents: number) => ({ bucket_id: 'fun', line: name, merchant, cents });
+    const rows = [row('Spesa', 'Il Bar', 500), row('Cinema', 'Il Bar', 300), row('Spesa', 'Lidl', 2000), row('Spesa', null, 900), row('Spesa', 'Reso', -100)];
+    expect(topMerchants(rows)).toEqual([
+      { name: 'Lidl', cents: 2000 },
+      { name: 'Il Bar', cents: 800 },
+    ]);
+  });
+});
+
+describe('uscite giorno per giorno', () => {
+  const tx = (booking_date: string, amount_cents: number, bucket_id: string | null | undefined, transfer_group_id: string | null = null) => ({
+    booking_date,
+    amount_cents,
+    line_id: bucket_id === undefined ? null : 'l',
+    transfer_group_id,
+    budget_lines: bucket_id === undefined ? null : { name: bucket_id ? 'Spesa' : 'Stipendio', bucket_id },
+  });
+  const rows = daySpending([
+    tx('2026-10-05', -1000, 'fun'),
+    tx('2026-10-20', -3000, 'fun'),
+    tx('2026-10-28', -9000, 'fm'),
+    tx('2026-11-03', -2000, 'fun'),
+    tx('2026-11-03', 500, 'fun'),
+    tx('2026-11-10', -700, undefined),
+    // Fuori: un'entrata, un'entrata da assegnare, un trasferimento senza riga.
+    tx('2026-11-04', 200000, null),
+    tx('2026-11-05', 4000, undefined),
+    tx('2026-11-06', -5000, undefined, 'g'),
+  ]);
+
+  it('conta le righe dei secchi e le uscite da assegnare, come la torta; un rimborso compensa', () => {
+    expect(rows.filter((r) => r.date.startsWith('2026-11')).map((r) => r.cents)).toEqual([2000, -500, 700]);
+  });
+
+  it('confronta due mesi fino allo stesso giorno, per secchio e in totale', () => {
+    expect(compareDay('2026-11-01', '2026-11-22')).toBe(22);
+    expect(compareDay('2026-10-01', '2026-11-22')).toBe(31);
+    const spec = compareChart(rows, '2026-11-01', '2026-10-01', 22, buckets);
+    expect(spec.form).toBe('vbars');
+    expect(spec.labels).toEqual(['Fun', 'Da assegnare', 'Totale']);
+    // Ottobre si ferma al 22: la spesa del 28 non conta, e il suo secchio non compare.
+    expect(spec.series.map((s) => s.values)).toEqual([
+      [1500, 700, 2200],
+      [4000, 0, 4000],
+    ]);
+    expect(spec.summary).toContain('in meno');
+  });
+
+  it('lo stesso mese due volte ha una serie sola', () => {
+    expect(compareChart(rows, '2026-10-01', '2026-10-01', 31, buckets).series).toHaveLength(1);
+  });
+
+  it('una colonna per giorno e la cumulata tratteggiata, che si ferma a oggi', () => {
+    const spec = dailyChart(rows, '2026-11-01', '2026-11-12');
+    const [perDay, total] = spec.series;
+    expect(spec.labels).toHaveLength(30);
+    expect(perDay.values.slice(0, 12)).toEqual([0, 0, 1500, 0, 0, 0, 0, 0, 0, 700, 0, 0]);
+    expect(perDay.values[12]).toBeNull();
+    expect([total.line, total.dashed]).toEqual([true, true]);
+    expect([total.values[2], total.values[11], total.values[12]]).toEqual([1500, 2200, null]);
+    expect(spec.summary).toContain('Il giorno più caro: il 3');
+  });
+
+  it('un mese senza uscite non disegna nulla', () => {
+    expect(dailyChart(rows, '2026-09-01', '2026-11-12').labels).toEqual([]);
+  });
+});
+
+it('torta: una fetta tolta a mano esce anche dai totali sopra, solo nel suo ramo', () => {
+  const row = (bucket_id: string, name: string, merchant: string, cents: number) => ({ bucket_id, line: name, merchant, cents });
+  const tree = spendingTree([row('fm', 'Luce', 'A', 3000), row('fm', 'Luce', 'B', 1000), row('fm', 'Gas', 'A', 500), row('fun', 'Bar', 'A', 200)], buckets);
+  const cut = prune(tree, new Set(['fm>fm/Luce>A']));
+  const fm = cut.children.find((n) => n.key === 'fm')!;
+  expect(cut.cents).toBe(1700);
+  expect(fm.cents).toBe(1500);
+  expect(fm.children.find((n) => n.key === 'fm/Luce')!.children.map((n) => n.label)).toEqual(['B']);
+  expect(prune(tree, new Set(['fm'])).children.map((n) => n.key)).toEqual(['fun']);
+});
+
+describe('riepilogo dei mesi', () => {
+  const m = month('2026-12-01', [line('Spesa', 'fun', -30000, -45000), line('Casa', 'fm', -50000, -50000), line('Luce', 'fm', -6000, -5000)], {
+    income_forecast: 2000,
+    income_actual: 500,
+    expense_forecast: -1500,
+    expense_actual: -300,
+    end_forecast: 900,
+    end_actual: 600,
+    reserve_forecast: 4000,
+    reserve_actual: 3900,
+  });
+
+  it('effettivo fino al mese in corso, previsto per i futuri; il Salvadanaio segue le righe', () => {
+    expect(monthRow(m, '2026-12-01')).toEqual({ month: '2026-12-01', income: 500, expense: -300, end: 600, reserve: 4000 });
+    expect(monthRow(m, '2026-11-01')).toEqual({ month: '2026-12-01', income: 2000, expense: -1500, end: 900, reserve: 4000 });
+  });
+
+  it('le righe con lo scostamento maggiore, senza quelle in linea', () => {
+    expect(topGaps(m).map((l) => l.name)).toEqual(['Spesa', 'Luce']);
   });
 });

@@ -102,6 +102,9 @@ function byDay<T extends Transaction>(list: T[], withYear: boolean) {
         <input type="checkbox" [checked]="onlyUnassigned()" (change)="toggleFilter()" />
         Solo da assegnare
       </label>
+      <button type="button" class="select" [class.on]="selecting()" [attr.aria-pressed]="selecting()" (click)="setSelecting(!selecting())">
+        {{ selecting() ? 'Annulla selezione' : 'Seleziona' }}
+      </button>
       @if (!searching()) {
         <div class="segmented" role="group" aria-label="Vista dei movimenti">
           <button type="button" [class.on]="!calendarView()" [attr.aria-pressed]="!calendarView()" (click)="setView(false)">Lista</button>
@@ -171,7 +174,17 @@ function byDay<T extends Transaction>(list: T[], withYear: boolean) {
                 </div>
               } @else {
                 <div class="swipe">
-                  <button type="button" class="row" (click)="launcher.open(t)">
+                  <!-- In selezione il tocco spunta il movimento invece di aprirlo. -->
+                  <button
+                    type="button"
+                    class="row"
+                    [class.picked]="selected().has(t.id)"
+                    [attr.aria-pressed]="selecting() ? selected().has(t.id) : null"
+                    (click)="selecting() ? toggle(t.id) : launcher.open(t)"
+                  >
+                    @if (selecting()) {
+                      <span class="tick" aria-hidden="true">{{ selected().has(t.id) ? '✓' : '' }}</span>
+                    }
                     <span class="text">
                       <span class="title">{{ title(t) }}</span>
                       <span class="sub" [class.todo]="isUnassigned(t)">{{ subtitle(t) }}</span>
@@ -189,6 +202,25 @@ function byDay<T extends Transaction>(list: T[], withYear: boolean) {
       @if (!searching() && !showCalendar()) {
         <p class="note">{{ onlyUnassigned() ? 'Niente da assegnare in questo mese.' : 'Nessun movimento in questo mese.' }}</p>
       }
+    }
+
+    @if (selecting()) {
+      <!-- Più movimenti sulla stessa riga, es. le spese di una trasferta. -->
+      <div class="pick-bar" role="group" aria-label="Assegna i movimenti selezionati">
+        <span role="status">{{ picked().length }} selezionati · {{ fmt(pickedTotal()) }}</span>
+        <select aria-label="Riga a cui assegnarli" [value]="assignTo()" (change)="assignTo.set($any($event.target).value)">
+          <option value="">Scegli la riga</option>
+          @for (g of lineGroups(); track g.title) {
+            <optgroup [label]="g.title">
+              @for (l of g.lines; track l.id) {
+                <option [value]="l.id">{{ l.name }}</option>
+              }
+            </optgroup>
+          }
+          <option value="nessuna">Da assegnare (toglie la riga)</option>
+        </select>
+        <button type="button" [disabled]="!picked().length || !assignTo()" (click)="assign()">Assegna</button>
+      </div>
     }
   `,
   styles: `
@@ -387,6 +419,64 @@ function byDay<T extends Transaction>(list: T[], withYear: boolean) {
       scroll-snap-align: end;
       cursor: pointer;
     }
+    .select,
+    .pick-bar button,
+    .pick-bar select {
+      min-height: 40px;
+      padding: 0 14px;
+      border: 1px solid var(--mat-sys-outline-variant);
+      border-radius: 20px;
+      background: var(--mat-sys-surface);
+      color: var(--mat-sys-on-surface);
+      font: var(--mat-sys-label-large);
+      cursor: pointer;
+    }
+    .select.on,
+    .pick-bar button:not(:disabled) {
+      border-color: var(--mat-sys-primary);
+      background: var(--mat-sys-primary-container);
+      color: var(--mat-sys-on-primary-container);
+    }
+    .tick {
+      flex: none;
+      display: grid;
+      place-items: center;
+      width: 22px;
+      height: 22px;
+      border: 2px solid var(--mat-sys-outline);
+      border-radius: 4px;
+    }
+    .picked .tick {
+      border-color: var(--mat-sys-primary);
+      background: var(--mat-sys-primary);
+      color: var(--mat-sys-on-primary);
+    }
+    .row .text {
+      flex: 1;
+    }
+    /* Resta in vista sopra la barra di navigazione, che su schermo stretto è fissa in basso. */
+    .pick-bar {
+      position: sticky;
+      bottom: calc(76px + env(safe-area-inset-bottom));
+      z-index: 5;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-radius: 12px;
+      background: var(--mat-sys-surface-container-high);
+      box-shadow: var(--mat-sys-level2);
+    }
+    .pick-bar select {
+      flex: 1;
+      min-width: 0;
+    }
+    @media (min-width: 840px) {
+      .pick-bar {
+        bottom: 12px;
+      }
+    }
     .warn {
       color: var(--mat-sys-error);
     }
@@ -434,6 +524,38 @@ export class Transactions {
   });
 
   protected readonly foundTotal = computed(() => (this.found() ?? []).reduce((s, t) => s + t.amount_cents, 0));
+
+  /** Selezione multipla: i movimenti spuntati tra quelli in elenco (del mese o della ricerca). */
+  protected readonly selecting = signal(false);
+  protected readonly selected = signal(new Set<string>());
+  protected readonly assignTo = signal('');
+  protected readonly picked = computed(() => (this.searching() ? (this.found() ?? []) : this.monthItems()).filter((t) => this.selected().has(t.id)));
+  protected readonly pickedTotal = computed(() => this.picked().reduce((s, t) => s + t.amount_cents, 0));
+  /** Le righe del mese aperto, per secchio e poi le entrate. */
+  protected readonly lineGroups = computed(() => {
+    const group = (title: string, bucketId: string | null) => ({ title, lines: this.ledger.lines().filter((l) => l.bucket_id === bucketId) });
+    return [...this.ledger.buckets().map((b) => group(b.name, b.id)), group('Entrate', null)].filter((g) => g.lines.length);
+  });
+
+  protected setSelecting(on: boolean): void {
+    this.selecting.set(on);
+    this.selected.set(new Set());
+    this.assignTo.set('');
+  }
+
+  protected toggle(id: string): void {
+    this.selected.update((old) => {
+      const next = new Set(old);
+      if (!next.delete(id)) next.add(id);
+      return next;
+    });
+  }
+
+  /** Un movimento di un altro mese (dalla ricerca) va sulla riga con lo stesso nome nel suo mese: lo fa il database. */
+  protected assign(): void {
+    const line = this.ledger.lineById().get(this.assignTo());
+    if (this.launcher.assign(this.picked(), line?.id ?? null, line?.name ?? 'Da assegnare')) this.setSelecting(false);
+  }
 
   /** Le caselle del mese, da lunedì: null per i giorni vuoti prima del primo. */
   protected readonly calendar = computed(() => {
@@ -522,6 +644,7 @@ export class Transactions {
       this.isUnassigned(t) ? 'Da assegnare' : line?.name,
       line && !line.bucket_id ? 'Entrate' : bucket?.name,
       ...tags,
+      t.split_group_id ? 'diviso' : null,
       t.review_reason ? 'da controllare' : null,
       this.pendingIds().has(t.id) ? 'in attesa di invio' : null,
     ];

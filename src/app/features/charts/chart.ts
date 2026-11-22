@@ -1,4 +1,4 @@
-import { Component, computed, DestroyRef, effect, ElementRef, inject, input, Signal, signal, viewChild } from '@angular/core';
+import { Component, computed, DestroyRef, effect, ElementRef, inject, input, output, Signal, signal, viewChild } from '@angular/core';
 import {
   ArcElement,
   BarController,
@@ -70,7 +70,7 @@ const tipLabels = (format: (value: number) => string, ink: string): Plugin<'bar'
   },
 });
 
-function config(spec: ChartSpec, c: Colors): ChartConfiguration {
+function config(spec: ChartSpec, c: Colors, onPick: (label: string) => void): ChartConfiguration {
   const horizontal = spec.form === 'bars';
   const stacked = spec.form === 'columns';
   const isBar = spec.form !== 'line';
@@ -90,14 +90,16 @@ function config(spec: ChartSpec, c: Colors): ChartConfiguration {
     afterBuildTicks: spec.ticks ? (axis: { ticks: { value: number }[] }) => (axis.ticks = spec.ticks!.map((t) => ({ value: t }))) : undefined,
     ticks: { color: c.ink, maxTicksLimit: 6, callback: (v: number | string) => tick(Number(v)) },
   };
+  const few = spec.form === 'vbars' && spec.labels.length <= 8;
   const category = {
     stacked,
     grid: { display: false },
     border: { color: c.grid },
     ticks: {
       color: c.ink,
-      autoSkip: !horizontal,
-      maxRotation: 0,
+      // Poche colonne affiancate (i secchi): tutte le etichette, inclinate se non entrano.
+      autoSkip: !horizontal && !few,
+      maxRotation: few ? 40 : 0,
       callback(this: { getLabelForValue(v: number): string }, v: number | string) {
         const label = this.getLabelForValue(Number(v));
         return label.length > 18 ? label.slice(0, 17) + '…' : label;
@@ -105,13 +107,17 @@ function config(spec: ChartSpec, c: Colors): ChartConfiguration {
     },
   };
 
+  const right = spec.series.some((s) => s.line)
+    ? { right: { axis: 'y', position: 'right', beginAtZero: true, grid: { display: false }, border: { display: false }, ticks: value.ticks } }
+    : {};
+
   return {
     type: isBar ? 'bar' : 'line',
     data: {
       labels: spec.labels,
       datasets: spec.series.map((s, i) => {
         const color = c.series[s.slot];
-        return isBar
+        return isBar && !s.line
           ? {
               label: s.label,
               data: s.values,
@@ -135,6 +141,9 @@ function config(spec: ChartSpec, c: Colors): ChartConfiguration {
               pointHoverRadius: 5,
               pointBorderColor: c.surface,
               pointBorderWidth: 2,
+              // Una linea sopra le colonne: ha la sua scala, a destra, e niente punti (uno per giorno sarebbero troppi).
+              // order: sotto zero si disegna sopra le colonne.
+              ...(s.line ? { type: 'line', yAxisID: 'right', pointRadius: 0, order: -1 } : {}),
             };
       }),
     } as ChartConfiguration['data'],
@@ -146,7 +155,10 @@ function config(spec: ChartSpec, c: Colors): ChartConfiguration {
       // Basta il tocco vicino alla colonna: il riquadro riporta tutte le serie di quel punto.
       interaction: { mode: 'index', intersect: false, axis: horizontal ? 'y' : 'x' },
       layout: { padding: { right: tips ? 72 : 0 } },
-      scales: (horizontal ? { x: value, y: category } : { x: category, y: value }) as never,
+      scales: (horizontal ? { x: value, y: category } : { x: category, y: value, ...right }) as never,
+      onClick: (_, elements) => {
+        if (elements.length) onPick(spec.labels[elements[0].index]);
+      },
       plugins: {
         // La legenda riprende il segno: un riquadro alto zero è un tratto, tratteggiato per la previsione.
         legend: {
@@ -175,6 +187,18 @@ function config(spec: ChartSpec, c: Colors): ChartConfiguration {
         <h2>{{ heading() }}</h2>
         <p>{{ spec().summary }}</p>
       </figcaption>
+      <!-- I comandi del grafico: mesi a confronto, righe incluse. -->
+      <ng-content />
+      @if (spec().toggle && spec().series.length > 1) {
+        <div class="segmented" role="group" [attr.aria-label]="'Serie mostrate: ' + heading()">
+          @for (s of spec().series; track s.label) {
+            <button type="button" [class.on]="single() && only() === s.label" [attr.aria-pressed]="single() && only() === s.label" (click)="only.set(s.label)">
+              {{ s.label }}
+            </button>
+          }
+          <button type="button" [class.on]="!single()" [attr.aria-pressed]="!single()" (click)="only.set('')">Entrambi</button>
+        </div>
+      }
       @if (spec().labels.length) {
         <div class="plot" [style.height.px]="height()">
           <canvas #canvas role="img" [attr.aria-label]="heading() + '. ' + spec().summary"></canvas>
@@ -186,16 +210,16 @@ function config(spec: ChartSpec, c: Colors): ChartConfiguration {
               <thead>
                 <tr>
                   <td></td>
-                  @for (s of spec().series; track s.label) {
+                  @for (s of shown().series; track s.label) {
                     <th scope="col">{{ s.label }}</th>
                   }
                 </tr>
               </thead>
               <tbody>
-                @for (label of spec().labels; track $index; let i = $index) {
+                @for (label of shown().labels; track $index; let i = $index) {
                   <tr>
                     <th scope="row">{{ label }}</th>
-                    @for (s of spec().series; track s.label) {
+                    @for (s of shown().series; track s.label) {
                       <td>{{ cell(s.values[i]) }}</td>
                     }
                   </tr>
@@ -232,6 +256,31 @@ function config(spec: ChartSpec, c: Colors): ChartConfiguration {
     .plot {
       position: relative;
       min-width: 0;
+    }
+    .segmented {
+      display: flex;
+    }
+    .segmented button {
+      min-height: 40px;
+      padding: 0 14px;
+      border: 1px solid var(--mat-sys-outline-variant);
+      background: none;
+      color: var(--mat-sys-on-surface);
+      font: var(--mat-sys-label-large);
+      cursor: pointer;
+    }
+    .segmented button + button {
+      border-left: 0;
+    }
+    .segmented button:first-child {
+      border-radius: 20px 0 0 20px;
+    }
+    .segmented button:last-child {
+      border-radius: 0 20px 20px 0;
+    }
+    .segmented .on {
+      background: var(--mat-sys-primary-container);
+      color: var(--mat-sys-on-primary-container);
     }
     summary {
       display: flex;
@@ -274,6 +323,18 @@ function config(spec: ChartSpec, c: Colors): ChartConfiguration {
 export class ChartView {
   readonly heading = input.required<string>();
   readonly spec = input.required<ChartSpec>();
+  /** Tocco su una barra o una colonna: la sua etichetta. */
+  readonly pick = output<string>();
+
+  /** Solo previsto o solo effettivo: l'etichetta della serie rimasta; vuoto = entrambi. */
+  protected readonly only = signal('');
+  /** Il grafico con le serie da mostrare: lo seguono disegno, altezza e tabella. */
+  protected readonly shown = computed(() => {
+    const spec = this.spec();
+    const one = spec.series.filter((s) => s.label === this.only());
+    return spec.toggle && one.length && spec.series.length > 1 ? { ...spec, series: one } : spec;
+  });
+  protected readonly single = computed(() => this.shown() !== this.spec());
 
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly canvas = viewChild<ElementRef<HTMLCanvasElement>>('canvas');
@@ -281,7 +342,7 @@ export class ChartView {
 
   /** Le barre crescono con le righe; il resto ha un'altezza fissa, assi compresi. */
   protected readonly height = computed(() => {
-    const spec = this.spec();
+    const spec = this.shown();
     if (spec.form !== 'bars') return 280;
     return spec.labels.length * (spec.series.length > 1 ? 44 : 30) + (spec.series.length > 1 ? 64 : 8);
   });
@@ -290,10 +351,10 @@ export class ChartView {
     // Niente animazioni: ridisegnare da zero non si vede, ed è il modo più semplice di seguire dati e tema.
     effect((onCleanup) => {
       const canvas = this.canvas()?.nativeElement;
-      const spec = this.spec();
+      const spec = this.shown();
       const dark = this.dark();
       if (!canvas) return;
-      const chart = new Chart(canvas, config(spec, themeColors(this.host.nativeElement, dark)));
+      const chart = new Chart(canvas, config(spec, themeColors(this.host.nativeElement, dark), (label) => this.pick.emit(label)));
       onCleanup(() => chart.destroy());
     });
   }

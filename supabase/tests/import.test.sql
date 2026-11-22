@@ -1,7 +1,7 @@
 -- Import dell'estratto: niente doppioni con ciò che è già registrato. Dati finti.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(9);
+select plan(11);
 
 insert into auth.users (id, email) values ('00000000-0000-0000-0000-00000000000a', 'a@example.com');
 insert into public.accounts (id, user_id, name, role) values
@@ -76,6 +76,26 @@ select results_eq(
   $$ select status, review_reason, merchant_raw from public.transactions where id = '60000000-0000-0000-0000-000000000004' $$,
   $$ values ('confirmed', null::text, 'CONSEGNE ESEMPIO SL') $$,
   'l''autorizzazione diventa confermata e tiene il nome del pagamento'
+);
+-- Un'entrata divisa su due righe: l'estratto la riporta intera. Un'altra riga dell'estratto,
+-- uguale a una delle parti, è un altro movimento.
+insert into public.transactions (id, user_id, account_id, amount_cents, booking_date, source, split_group_id) values
+  ('60000000-0000-0000-0000-000000000005', '00000000-0000-0000-0000-00000000000a', '10000000-0000-0000-0000-000000000001',
+   20000, '2026-11-03', 'manual', '90000000-0000-0000-0000-000000000001'),
+  ('60000000-0000-0000-0000-000000000006', '00000000-0000-0000-0000-00000000000a', '10000000-0000-0000-0000-000000000001',
+   10000, '2026-11-03', 'manual', '90000000-0000-0000-0000-000000000001');
+select is(
+  private.import_statement('00000000-0000-0000-0000-00000000000a', '[
+    {"id": "70000000-0000-0000-0000-000000000008", "account": "BBVA", "amount": 30000, "booking_date": "2026-11-03", "value_date": "2026-11-03", "merchant": "BONIFICO RICEVUTO"},
+    {"id": "70000000-0000-0000-0000-00000000000a", "account": "BBVA", "amount": 10000, "booking_date": "2026-11-03", "value_date": "2026-11-03", "merchant": "BONIFICO RICEVUTO"}]'),
+  '{"nuovi": 1, "uniti_a_esistenti": 1, "gia_importati": 0}'::jsonb,
+  'un movimento diviso si unisce intero alla riga dell''estratto; una parte da sola no'
+);
+select is(
+  (select count(*) from public.transactions
+   where split_group_id = '90000000-0000-0000-0000-000000000001' and merchant_raw = 'BONIFICO RICEVUTO' and source = 'manual'),
+  2::bigint,
+  'le due parti restano due movimenti e prendono il nome dall''estratto'
 );
 select throws_ok(
   $$ select private.import_statement('00000000-0000-0000-0000-00000000000a',

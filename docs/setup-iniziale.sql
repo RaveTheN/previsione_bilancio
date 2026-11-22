@@ -56,11 +56,14 @@ where not exists (
 --   "Rimborso accettato 👍🔙Rimborso di 37,05 EUR presso NEGOZIO effettuato con la tua carta *1234"
 --     → riga "Rimborso NEGOZIO" tra le Entrate, con il previsto
 --   "Arrotonda acquisti" (senza importo) → l'importo si scrive in Da rivedere, riga "Arrotonda acquisti"
+--   "Accredito bonifico ✅⬅️Hai ricevuto un accredito sul tuo conto IT…" (senza importo) → resta in
+--     Da rivedere come entrata, e da lì si crea il movimento
 -- e notifiche da ignorare.
 insert into public.parse_rules (user_id, app, priority, match_regex, action, amount_regex, merchant_regex, card_regex, line_name)
 select u.id, r.app, r.priority, r.match_regex, r.action, r.amount_regex, r.merchant_regex, r.card_regex, r.line_name
 from auth.users u,
   (values
+    ('BBVA', 0, 'Accredito bonifico', 'income', null, null, null, null),
     ('BBVA', 3, 'Prelievo accettato', 'expense', '([0-9][0-9.,]*)\s*EUR', null, 'carta\s+\*+(\d{4})', 'Contanti'),
     ('BBVA', 4, 'Rimborso accettato', 'forecast', '([0-9][0-9.,]*)\s*EUR', 'presso\s+(.+?)\s+effettuato con', null, null),
     ('BBVA', 5, 'Arrotonda acquisti', 'expense', null, null, null, 'Arrotonda acquisti'),

@@ -66,7 +66,7 @@ describe('riga creata dalla finestra del movimento', () => {
       providers: [
         { provide: MAT_BOTTOM_SHEET_DATA, useValue: {} },
         { provide: MatBottomSheetRef, useValue: { dismiss: vi.fn() } },
-        { provide: Sync, useValue: {} },
+        { provide: Sync, useValue: { add: vi.fn() } },
         {
           provide: Ledger,
           useValue: {
@@ -114,6 +114,30 @@ describe('riga creata dalla finestra del movimento', () => {
     updateResult = { data: null, error: { code: '23505', message: 'duplicate' }, status: 409 };
     await createThenGoToOctober();
     expect(query['delete']).toHaveBeenCalled();
+  });
+
+  it('un\'entrata divisa: il movimento tiene il resto, la parte è un movimento a sé nello stesso gruppo', () => {
+    sheet.accountId = 'a1';
+    sheet.income.set(true);
+    sheet.amountText.set('300');
+    sheet.parts.set([{ amount: '100', lineId: 'l2' }]);
+    sheet.save();
+    const rows = (TestBed.inject(Sync).add as ReturnType<typeof vi.fn>).mock.calls[0].map((op: { row: Record<string, unknown> }) => op.row);
+    expect(rows.map((r: Record<string, unknown>) => [r['amount_cents'], r['line_id']])).toEqual([
+      [20000, null],
+      [10000, 'l2'],
+    ]);
+    expect(rows[0]['split_group_id']).toBeTruthy();
+    expect(rows[1]['split_group_id']).toBe(rows[0]['split_group_id']);
+    expect(rows[1]['id']).not.toBe(rows[0]['id']);
+  });
+
+  it('le parti non possono prendersi tutto l\'importo', () => {
+    sheet.accountId = 'a1';
+    sheet.amountText.set('300');
+    sheet.parts.set([{ amount: '300', lineId: 'l2' }]);
+    sheet.save();
+    expect(TestBed.inject(Sync).add).not.toHaveBeenCalled();
   });
 
   it('una riga scelta dopo averne creata un\'altra non sposta quella creata', async () => {

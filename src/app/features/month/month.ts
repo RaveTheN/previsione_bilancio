@@ -172,7 +172,9 @@ const percent = new Intl.NumberFormat('it-IT', { style: 'percent', maximumFracti
                     <th scope="rowgroup">
                       {{ g.title }}
                       @if (g.stat) {
-                        <span class="sub">obiettivo {{ pct(g.stat.target_pct) }}</span>
+                        <button type="button" class="sub target" (click)="setTarget(g)">
+                          obiettivo {{ pct(g.stat.target_pct) }} <span aria-hidden="true">▾</span>
+                        </button>
                       }
                     </th>
                     <td>
@@ -523,6 +525,15 @@ const percent = new Intl.NumberFormat('it-IT', { style: 'percent', maximumFracti
       display: block;
       font-weight: normal;
     }
+    /* L'obiettivo si tocca per cambiarlo, ma si legge come testo. */
+    .grid .target {
+      min-height: 40px;
+      padding: 0;
+      border: 0;
+      background: none;
+      text-align: left;
+      cursor: pointer;
+    }
     .grid input {
       box-sizing: border-box;
       width: 100%;
@@ -854,6 +865,18 @@ export class Month {
       this.repeat = 0;
       this.pickType('');
     }
+  }
+
+  /** L'obiettivo del secchio, in percentuale delle entrate: vale per tutti i mesi. */
+  protected async setTarget(g: Group): Promise<void> {
+    const text = prompt(`Obiettivo di ${g.title}, in % delle entrate`, String(g.stat?.target_pct ?? 0).replace('.', ','))?.trim();
+    if (text === undefined || !g.bucketId) return;
+    const value = Number(text.replace('%', '').replace(',', '.'));
+    if (!text || !(value >= 0 && value <= 100)) {
+      this.snackBar.open('Scrivi una percentuale tra 0 e 100', 'OK', { duration: 4000 });
+      return;
+    }
+    this.done(await supabase.from('buckets').update({ target_pct: value }).eq('id', g.bucketId), 'Obiettivo non salvato');
   }
 
   protected async renameRow(r: Row): Promise<void> {

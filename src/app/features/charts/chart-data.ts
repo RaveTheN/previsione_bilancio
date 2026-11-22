@@ -1,7 +1,7 @@
-import { monthLabel, shiftMonth } from '../../core/ledger';
+import { lastDay, monthLabel, shiftMonth } from '../../core/ledger';
 import { formatCents } from '../../core/money';
 import { lineKind } from '../../core/budget';
-import { Bucket, MonthOverview } from '../../core/supabase';
+import { Bucket, MonthLine, MonthOverview } from '../../core/supabase';
 
 /** Forma (jsonb) di chart_data: è definita nella migrazione "righe_libere". */
 export interface ChartMonth extends MonthOverview {
@@ -31,11 +31,15 @@ export interface Series {
   /** Posizione nella palette: 1-7 identità, 0 grigio (previsione, "Altre"). Segue l'entità, non la classifica. */
   slot: number;
   dashed?: boolean;
+  /** In un grafico a colonne: una linea sopra le colonne, con il suo asse a destra. */
+  line?: boolean;
 }
 
 export interface ChartSpec {
-  /** Colonne impilate, linee o barre orizzontali raggruppate. */
-  form: 'columns' | 'line' | 'bars';
+  /** Colonne impilate, colonne affiancate, linee o barre orizzontali raggruppate. */
+  form: 'columns' | 'vbars' | 'line' | 'bars';
+  /** Le serie (previsto ed effettivo) si possono guardare anche una per volta. */
+  toggle?: true;
   unit: 'cents' | 'pct';
   labels: string[];
   series: Series[];
@@ -51,13 +55,29 @@ const shortMonth = (month: string) => new Date(month + 'T12:00:00').toLocaleDate
 
 export const formatPct = (value: number) => `${value.toLocaleString('it-IT', { maximumFractionDigits: 1 })}%`;
 
-/** Mesi inclusi di un periodo ("m6", "m12" = ultimi mesi; "y2026" = anno), mai prima del mese di avvio. */
+const MAX_MONTHS = 36;
+
+/** Un intervallo di mesi scritto a mano: mai prima dell'avvio, nell'ordine giusto, al massimo tre anni. */
+export function clampRange(from: string, to: string, goLive: string | null): { from: string; to: string } {
+  const start = goLive && goLive > from ? goLive : from;
+  const max = shiftMonth(start, MAX_MONTHS - 1);
+  return { from: start, to: to < start ? start : to > max ? max : to };
+}
+
+/**
+ * Mesi inclusi di una scorciatoia: "m6" = ultimi mesi, "p1" = mese scorso, "f12" = i prossimi
+ * a partire da quello in corso, "y2026" = anno.
+ */
 export function periodRange(period: string, current: string, goLive: string | null): { from: string; to: string } {
   const n = Number(period.slice(1));
-  // "f12": i prossimi mesi, a partire da quello in corso.
-  const from = period[0] === 'y' ? `${n}-01-01` : period[0] === 'f' ? current : shiftMonth(current, 1 - n);
-  const to = period[0] === 'y' ? `${n}-12-01` : period[0] === 'f' ? shiftMonth(current, n - 1) : current;
-  return { from: goLive && goLive > from ? goLive : from, to };
+  const ranges: Record<string, [string, string]> = {
+    y: [`${n}-01-01`, `${n}-12-01`],
+    f: [current, shiftMonth(current, n - 1)],
+    p: [shiftMonth(current, -n), shiftMonth(current, -n)],
+    m: [shiftMonth(current, 1 - n), current],
+  };
+  const [from, to] = ranges[period[0]];
+  return clampRange(from, to, goLive);
 }
 
 export function periodOptions(current: string, goLive: string | null): { value: string; label: string }[] {
@@ -66,6 +86,9 @@ export function periodOptions(current: string, goLive: string | null): { value: 
   for (let y = Math.min(Number((goLive ?? current).slice(0, 4)), thisYear); y <= thisYear + 1; y++) years.push(y);
   return [
     ...years.map((y) => ({ value: `y${y}`, label: `Anno ${y}` })),
+    { value: 'm1', label: 'Questo mese' },
+    { value: 'p1', label: 'Mese scorso' },
+    { value: 'm3', label: 'Ultimi 3 mesi' },
     { value: 'm6', label: 'Ultimi 6 mesi' },
     { value: 'm12', label: 'Ultimi 12 mesi' },
     { value: 'f12', label: 'Prossimi 12 mesi' },
@@ -131,12 +154,14 @@ export function totalChart(months: ChartMonth[], current: string): ChartSpec {
  */
 export function marginChart(months: ChartMonth[], current: string): ChartSpec {
   if (!months.length) return empty();
-  const margin = (m: ChartMonth, k: 'forecast' | 'actual') => m[`income_${k}`] + m[`expense_${k}`] - m[`saving_${k}`];
+  // Come il disponibile nel database: uscite e accantonamenti sono già negativi, e l'effettivo conta anche i movimenti da assegnare.
+  const margin = (m: ChartMonth, k: 'forecast' | 'actual') => m[`income_${k}`] + m[`expense_${k}`] + m[`saving_${k}`] + (k === 'actual' ? m.unassigned.actual : 0);
   const planned = months.filter((m) => m.month >= current);
   const worst = planned.length ? planned.reduce((a, b) => (margin(b, 'forecast') < margin(a, 'forecast') ? b : a)) : null;
   const sum = planned.reduce((s, m) => s + margin(m, 'forecast'), 0);
   return {
     form: 'columns',
+    toggle: true,
     unit: 'cents',
     labels: months.map((m) => shortMonth(m.month)),
     series: [
@@ -193,6 +218,7 @@ export function lineChart(months: ChartMonth[], kind: 'income' | 'expense', limi
   const [topName, top] = sorted[0];
   return {
     form: 'bars',
+    toggle: true,
     unit: 'cents',
     labels: shown.map(([name]) => name),
     series: [
@@ -279,6 +305,146 @@ export function spendingTree(rows: ChartData['spending'], buckets: Bucket[]): Pi
   const order = buckets.map((b) => b.id);
   const children = fold(top).map((n) => (order.includes(n.key) ? { ...n, slot: order.indexOf(n.key) < 7 ? order.indexOf(n.key) + 1 : 0 } : n));
   return { key: 'tutte', label: 'Tutte le uscite', cents: sumCents(rows), slot: 0, children };
+}
+
+/**
+ * La torta senza le fette tolte a mano: le chiavi portano il percorso ("secchio>riga>esercente"),
+ * e i totali dei livelli sopra scendono di conseguenza.
+ */
+export function prune(node: PieNode, hidden: ReadonlySet<string>, path = ''): PieNode {
+  let cents = node.cents;
+  const children: PieNode[] = [];
+  for (const child of node.children) {
+    const key = path + child.key;
+    const kept = hidden.has(key) ? null : prune(child, hidden, key + '>');
+    cents -= child.cents - (kept?.cents ?? 0);
+    if (kept) children.push(kept);
+  }
+  return { ...node, cents, children };
+}
+
+/**
+ * I mesi senza le righe escluse (per nome). Le percentuali dei secchi si ricalcolano sulle righe
+ * rimaste, con la stessa base del database: tutte le entrate, effettive o, se mancano, previste.
+ */
+export function withoutLines(months: ChartMonth[], excluded: ReadonlySet<string>): ChartMonth[] {
+  if (!excluded.size) return months;
+  return months.map((m) => {
+    const lines = m.lines.filter((l) => !excluded.has(l.name));
+    const base = m.income_actual || m.income_forecast;
+    const spent = (id: string) => lines.filter((l) => l.bucket_id === id).reduce((s, l) => s + l.actual, 0);
+    // || 0: senza spese il meno darebbe "-0".
+    return { ...m, lines, buckets: m.buckets.map((b) => ({ ...b, actual_pct: base > 0 ? Math.round((-1000 * spent(b.bucket_id)) / base) / 10 || 0 : null })) };
+  });
+}
+
+/** I nomi delle righe del periodo, per il filtro di un grafico: entrate, o righe dei secchi. */
+export function lineNames(months: ChartMonth[], kind: 'income' | 'expense'): string[] {
+  const names = months.flatMap((m) => m.lines.filter((l) => (kind === 'income') === !l.bucket_id).map((l) => l.name));
+  return [...new Set(names)].sort((a, b) => a.localeCompare(b, 'it'));
+}
+
+/** Un movimento letto per i grafici giornalieri, con la sua riga. */
+export interface RawMovement {
+  booking_date: string;
+  amount_cents: number;
+  line_id: string | null;
+  transfer_group_id: string | null;
+  budget_lines: { name: string; bucket_id: string | null } | null;
+}
+
+/** Un'uscita con il suo giorno, in positivo: un rimborso sulla stessa riga è negativo. */
+export interface DaySpend {
+  date: string;
+  cents: number;
+  line: string | null;
+  bucket_id: string | null;
+}
+
+/** Stessa regola della torta (chart_data nel database): le righe dei secchi e le uscite da assegnare. */
+export function daySpending(rows: RawMovement[]): DaySpend[] {
+  return rows
+    .filter((t) => (t.budget_lines ? !!t.budget_lines.bucket_id : !t.line_id && !t.transfer_group_id && t.amount_cents < 0))
+    .map((t) => ({ date: t.booking_date, cents: -t.amount_cents, line: t.budget_lines?.name ?? null, bucket_id: t.budget_lines?.bucket_id ?? null }));
+}
+
+/** Fino a che giorno si confronta: oggi se il mese è quello in corso, altrimenti tutto il mese. */
+export function compareDay(month: string, today: string): number {
+  return today.startsWith(month.slice(0, 7)) ? Number(today.slice(8)) : 31;
+}
+
+/** Le uscite di due mesi fino allo stesso giorno: una coppia di colonne per secchio, più il totale. */
+export function compareChart(rows: DaySpend[], month: string, other: string, day: number, buckets: Bucket[]): ChartSpec {
+  const upTo = (m: string, match: (r: DaySpend) => boolean = () => true) =>
+    sumCents(rows.filter((r) => r.date.startsWith(m.slice(0, 7)) && Number(r.date.slice(8)) <= day && match(r)));
+  const [a, b] = [upTo(month), upTo(other)];
+  if (!a && !b) return empty('Nessuna uscita nei due mesi.');
+  const ids = new Set(buckets.map((bk) => bk.id));
+  const groups = [
+    ...buckets.map((bk) => ({ label: bk.name, match: (r: DaySpend) => r.bucket_id === bk.id })),
+    { label: 'Da assegnare', match: (r: DaySpend) => !r.bucket_id || !ids.has(r.bucket_id) },
+  ].filter((g) => upTo(month, g.match) || upTo(other, g.match));
+  const values = (m: string) => [...groups.map((g) => upTo(m, g.match)), upTo(m)];
+  const name = (m: string) => monthLabel(m).toLowerCase();
+  return {
+    form: 'vbars',
+    unit: 'cents',
+    labels: [...groups.map((g) => g.label), 'Totale'],
+    series: [
+      { label: monthLabel(month), slot: 1, values: values(month) },
+      { label: monthLabel(other), slot: 0, values: values(other) },
+    ].slice(0, month === other ? 1 : 2),
+    summary:
+      `${day >= 31 ? 'Mese intero' : `Fino al giorno ${day}`}: ${name(month)} ${formatCents(a)}, ${name(other)} ${formatCents(b)}` +
+      (a === b ? '.' : `: ${formatCents(Math.abs(a - b))} in ${a > b ? 'più' : 'meno'}.`),
+  };
+}
+
+/** Le uscite giorno per giorno, con la cumulata del mese: i giorni non ancora arrivati restano vuoti. */
+export function dailyChart(rows: DaySpend[], month: string, today: string): ChartSpec {
+  const days = Number(lastDay(month).slice(8));
+  const perDay = Array.from({ length: days }, (_, i) => sumCents(rows.filter((r) => r.date === month.slice(0, 8) + String(i + 1).padStart(2, '0'))));
+  if (!perDay.some(Boolean)) return empty('Nessuna uscita nel mese.');
+  const reached = Math.min(compareDay(month, today), month > today ? 0 : days);
+  const total = sumCents(perDay.map((cents) => ({ cents })));
+  const top = perDay.indexOf(Math.max(...perDay));
+  let sum = 0;
+  return {
+    form: 'vbars',
+    unit: 'cents',
+    labels: perDay.map((_, i) => String(i + 1)),
+    series: [
+      { label: 'Spesa del giorno', slot: 1, values: perDay.map((cents, i) => (i < reached || cents ? cents : null)) },
+      { label: 'Cumulata del mese', slot: 0, dashed: true, line: true, values: perDay.map((cents, i) => ((sum += cents), i < reached ? sum : null)) },
+    ],
+    summary:
+      `${monthLabel(month)}: ${formatCents(total)}, in media ${formatCents(Math.round(total / Math.max(reached, 1)))} al giorno. ` +
+      `Il giorno più caro: il ${top + 1}, con ${formatCents(perDay[top])}.`,
+  };
+}
+
+/** Riepilogo di un mese in elenco: l'effettivo fino al mese in corso, il previsto per i futuri. */
+export function monthRow(m: ChartMonth, current: string): { month: string; income: number; expense: number; end: number | null; reserve: number | null } {
+  const k = m.month > current ? 'forecast' : 'actual';
+  // Il Salvadanaio è quello che segue le righe, come nel riquadro della vista mese.
+  return { month: m.month, income: m[`income_${k}`], expense: m[`expense_${k}`], end: m[`end_${k}`], reserve: m.reserve_forecast };
+}
+
+/** Le righe con lo scostamento maggiore tra previsto ed effettivo. */
+export function topGaps(m: ChartMonth, limit = 3): MonthLine[] {
+  const gap = (l: MonthLine) => Math.abs(l.actual - l.forecast);
+  return m.lines.filter(gap).sort((a, b) => gap(b) - gap(a)).slice(0, limit);
+}
+
+/** I primi esercenti per spesa, dalle uscite per riga: così seguono il filtro delle righe. */
+export function topMerchants(rows: ChartData['spending'], limit = 10): ChartData['merchants'] {
+  const sums = new Map<string, number>();
+  for (const r of rows) if (r.merchant) sums.set(r.merchant, (sums.get(r.merchant) ?? 0) + r.cents);
+  return [...sums]
+    .map(([name, cents]) => ({ name, cents }))
+    .filter((m) => m.cents > 0)
+    .sort((a, b) => b.cents - a.cents || a.name.localeCompare(b.name))
+    .slice(0, limit);
 }
 
 export function merchantChart(merchants: ChartData['merchants']): ChartSpec {

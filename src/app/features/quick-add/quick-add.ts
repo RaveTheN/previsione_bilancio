@@ -4,7 +4,7 @@ import { MatButtonModule } from '@angular/material/button';
 import { MAT_BOTTOM_SHEET_DATA, MatBottomSheet, MatBottomSheetRef } from '@angular/material/bottom-sheet';
 import { MatSnackBar } from '@angular/material/snack-bar';
 import { defaultDate, lastDay, Ledger, monthLabel, shiftMonth, todayIso } from '../../core/ledger';
-import { centsToInput, parseAmount } from '../../core/money';
+import { centsToInput, formatCents, parseAmount } from '../../core/money';
 import { onlineSignal } from '../../core/online';
 import { PendingOp } from '../../core/queue';
 import { errorText, isGenericOperation, Merchant, MonthLine, supabase, Transaction } from '../../core/supabase';
@@ -22,9 +22,9 @@ function readMap(key: string): Record<string, string | number> {
 }
 
 /** Campi modificabili dall'app: il resto (fonte, causale importata…) non si tocca. */
-function editable(t: Transaction): Record<string, unknown> {
-  const { id, account_id, line_id, merchant_id, amount_cents, booking_date, occurred_at, note } = t;
-  return { id, account_id, line_id, merchant_id, amount_cents, booking_date, occurred_at, note };
+export function editable(t: Transaction): Record<string, unknown> {
+  const { id, account_id, line_id, merchant_id, amount_cents, booking_date, occurred_at, note, split_group_id } = t;
+  return { id, account_id, line_id, merchant_id, amount_cents, booking_date, occurred_at, note, split_group_id };
 }
 
 function findMerchant<T extends Pick<Merchant, 'name'>>(merchants: T[], name: string): T | undefined {
@@ -127,7 +127,37 @@ type TwinCandidate = Pick<Transaction, 'source' | 'account_id' | 'amount_cents' 
       }
       <div class="chips">
         <button type="button" [attr.aria-expanded]="creating()" (click)="creating.set(!creating())">+ Nuova riga</button>
+        <button type="button" (click)="addPart()">+ Dividi su un'altra riga</button>
       </div>
+
+      <!-- Un'entrata che copre più spese: ogni parte va su una riga sua, il movimento tiene il resto. -->
+      @for (p of parts(); track $index; let i = $index) {
+        <div class="part">
+          <input
+            [name]="'part' + i"
+            inputmode="decimal"
+            autocomplete="off"
+            placeholder="0,00"
+            [attr.aria-label]="'Importo della parte ' + (i + 1)"
+            [ngModel]="p.amount"
+            (ngModelChange)="setPart(i, { amount: $event })"
+          />
+          <select [name]="'partLine' + i" [attr.aria-label]="'Riga della parte ' + (i + 1)" [ngModel]="p.lineId" (ngModelChange)="setPart(i, { lineId: $event })">
+            <option value="">Scegli la riga</option>
+            @for (g of lineGroups(); track g.title) {
+              <optgroup [label]="g.title">
+                @for (l of g.lines; track l.id) {
+                  <option [value]="l.id">{{ l.name }}</option>
+                }
+              </optgroup>
+            }
+          </select>
+          <button type="button" class="icon" [attr.aria-label]="'Togli la parte ' + (i + 1)" (click)="removePart(i)">×</button>
+        </div>
+      }
+      @if (parts().length) {
+        <p class="hint" role="status">{{ restText() }}</p>
+      }
 
       @if (creating()) {
         <div class="new-line">
@@ -263,6 +293,18 @@ type TwinCandidate = Pick<Transaction, 'source' | 'account_id' | 'amount_cents' 
       border-radius: 12px;
       background: var(--mat-sys-surface-container);
     }
+    .part {
+      display: grid;
+      grid-template-columns: 6.5em minmax(0, 1fr) 44px;
+      gap: 8px;
+    }
+    .part .icon {
+      border: 0;
+      background: none;
+      color: inherit;
+      font: var(--mat-sys-title-medium);
+      cursor: pointer;
+    }
     .date {
       display: flex;
       flex-wrap: wrap;
@@ -305,6 +347,8 @@ type TwinCandidate = Pick<Transaction, 'source' | 'account_id' | 'amount_cents' 
       overflow-wrap: anywhere;
     }
     .date input,
+    .part input,
+    .part select,
     .merchant input,
     .new-line input,
     .new-line select,
@@ -359,7 +403,7 @@ export class QuickAdd {
   protected readonly error = signal('');
   protected accountId = '';
   // Un desiderio comprato è di oggi; il resto parte dal mese che stai guardando.
-  protected readonly date = signal(this.draft ? todayIso() : defaultDate(this.ledger.month()));
+  protected readonly date = signal(this.draft?.date ?? (this.draft ? todayIso() : defaultDate(this.ledger.month())));
   protected note = '';
   protected tagsText = '';
   /** Nome scelto per l'esercente del movimento; si salva dopo l'invio (serve la connessione). */
@@ -371,6 +415,22 @@ export class QuickAdd {
   private initialNoMerchant = false;
 
   protected readonly amountCents = computed(() => parseAmount(this.amountText()));
+
+  /** Parti da staccare su altre righe: diventano movimenti a sé, con lo stesso gruppo. */
+  protected readonly parts = signal<{ amount: string; lineId: string }[]>([]);
+  private readonly partsCents = computed(() => this.parts().map((p) => parseAmount(p.amount)));
+  /** Quello che resta al movimento; null finché manca un importo. */
+  private readonly rest = computed(() => {
+    const total = this.amountCents();
+    const cents = this.partsCents();
+    return total && cents.every((c) => c) ? total - cents.reduce<number>((s, c) => s + (c ?? 0), 0) : null;
+  });
+  protected readonly restText = computed(() => {
+    const rest = this.rest();
+    if (rest === null) return "Scrivi l'importo totale e quello di ogni parte.";
+    if (rest <= 0) return "Le parti superano l'importo: al movimento deve restare qualcosa.";
+    return `Restano ${formatCents(rest)} ${this.line() ? `su «${this.line()!.name}»` : 'da assegnare'}.`;
+  });
   protected readonly activeAccounts = computed(() => this.ledger.accounts().filter((a) => !a.archived));
 
   /** Le righe del mese del movimento: quelle già caricate, o lette apposta se è un altro mese. */
@@ -435,8 +495,9 @@ export class QuickAdd {
       const accounts = this.activeAccounts();
       this.accountId = accounts.find((a) => a.id === last)?.id ?? accounts.find((a) => a.role === 'spendable')?.id ?? '';
       if (this.draft) {
-        this.amountText.set(centsToInput(this.draft.cents));
+        if (this.draft.cents) this.amountText.set(centsToInput(this.draft.cents));
         this.note = this.draft.note;
+        this.income.set(!!this.draft.income);
       }
     }
     this.newLineBucket ||= this.ledger.buckets()[0]?.id ?? '';
@@ -530,6 +591,18 @@ export class QuickAdd {
     this.picked.set(this.line()?.id === l.id ? null : l);
   }
 
+  protected addPart(): void {
+    this.parts.update((list) => [...list, { amount: '', lineId: '' }]);
+  }
+
+  protected setPart(index: number, patch: { amount?: string; lineId?: string }): void {
+    this.parts.update((list) => list.map((p, i) => (i === index ? { ...p, ...patch } : p)));
+  }
+
+  protected removePart(index: number): void {
+    this.parts.update((list) => list.filter((_, i) => i !== index));
+  }
+
   /** Crea la riga in fondo al mese del movimento e la sceglie. */
   protected async createLine(): Promise<void> {
     const name = this.newLineName.trim();
@@ -565,6 +638,12 @@ export class QuickAdd {
     const cents = this.amountCents();
     if (!cents || !this.accountId || !this.date()) return;
     const signed = this.income() ? cents : -cents;
+    const parts = this.parts();
+    const rest = this.rest();
+    if (parts.length && (!rest || rest <= 0 || parts.some((p) => !p.lineId))) {
+      this.error.set('Per dividere servono importo e riga di ogni parte, e al movimento deve restare qualcosa.');
+      return;
+    }
     if (!this.tx) {
       // Una spesa già arrivata da una notifica non va registrata di nuovo senza volerlo.
       const candidates: TwinCandidate[] = this.other()?.rows ?? this.ledger.transactions();
@@ -591,18 +670,35 @@ export class QuickAdd {
     const merchant = this.noMerchant()
       ? { merchantId: null, pendingName: null }
       : merchantChoice(this.tx, this.merchantName, this.initialMerchantName, this.ledger.merchants());
+    const sign = this.income() ? 1 : -1;
     const row = {
       id,
       account_id: this.accountId,
       line_id: this.line()?.id ?? null,
-      amount_cents: signed,
+      amount_cents: parts.length ? sign * rest! : signed,
       booking_date: date,
       occurred_at: occurredAt,
       note: this.note.trim() || null,
       ...(merchant.merchantId ? { merchant_id: merchant.merchantId } : {}),
     };
+    // Le parti copiano il movimento, salvo importo e riga; il gruppo le tiene insieme per l'estratto.
+    const group = this.tx?.split_group_id ?? crypto.randomUUID();
+    const merchantId = merchant.merchantId ?? this.tx?.merchant_id;
+    const partRows = parts.map((p, i) => ({
+      ...row,
+      id: crypto.randomUUID(),
+      line_id: p.lineId,
+      amount_cents: sign * this.partsCents()[i]!,
+      split_group_id: group,
+      ...(merchantId ? { merchant_id: merchantId } : {}),
+      ...(this.tx?.merchant_raw ? { merchant_raw: this.tx.merchant_raw } : {}),
+    }));
+    const partIds = partRows.map((p) => p.id);
 
-    const ops: PendingOp[] = [{ table: 'transactions', kind: 'upsert', row }];
+    const ops: PendingOp[] = [
+      { table: 'transactions', kind: 'upsert', row: parts.length ? { ...row, split_group_id: group } : row },
+      ...partRows.map((p): PendingOp => ({ table: 'transactions', kind: 'upsert', row: p })),
+    ];
     if (this.tx) ops.push({ table: 'transaction_tags', kind: 'delete', match: { transaction_id: id } });
     const existing = new Map(this.ledger.tags().map((t) => [t.name.toLowerCase(), t.id]));
     const names = [...new Set(this.tagsText.split(',').map((s) => s.trim()).filter(Boolean))];
@@ -613,7 +709,7 @@ export class QuickAdd {
         existing.set(name.toLowerCase(), tagId);
         ops.push({ table: 'tags', kind: 'upsert', row: { id: tagId, name } });
       }
-      ops.push({ table: 'transaction_tags', kind: 'upsert', row: { transaction_id: id, tag_id: tagId } });
+      for (const txId of [id, ...partIds]) ops.push({ table: 'transaction_tags', kind: 'upsert', row: { transaction_id: txId, tag_id: tagId } });
     }
 
     try {
@@ -625,7 +721,7 @@ export class QuickAdd {
 
     localStorage.setItem(ACCOUNT_KEY, JSON.stringify({ id: row.account_id }));
 
-    const undo: PendingOp[] = this.tx
+    const own: PendingOp[] = this.tx
       ? [
           { table: 'transactions', kind: 'upsert', row: editable(this.tx) },
           { table: 'transaction_tags', kind: 'delete', match: { transaction_id: id } },
@@ -634,9 +730,10 @@ export class QuickAdd {
           ),
         ]
       : [{ table: 'transactions', kind: 'delete', match: { id } }];
+    const undo = [...own, ...partIds.map((partId): PendingOp => ({ table: 'transactions', kind: 'delete', match: { id: partId } }))];
     // Solo un movimento ancora da assegnare insegna la regola all'esercente:
-    // correggerne uno già assegnato resta un'eccezione.
-    const propagate = !!this.tx && this.hasMerchant && !this.noMerchant() && !this.tx.line_id && !!row.line_id;
+    // correggerne uno già assegnato, o dividerlo, resta un'eccezione.
+    const propagate = !!this.tx && this.hasMerchant && !this.noMerchant() && !this.tx.line_id && !!row.line_id && !parts.length;
     const noMerchant = this.noMerchant() !== this.initialNoMerchant ? this.noMerchant() : undefined;
     const otherMonth = this.lineMonth() !== this.ledger.month() ? this.lineMonth() : undefined;
     this.ref.dismiss({ id, undo, propagate, merchantName: merchant.pendingName, otherMonth, noMerchant });
@@ -656,9 +753,13 @@ export class QuickAdd {
 
 /** Valori iniziali di un movimento nuovo, es. un desiderio appena comprato. */
 export interface Draft {
+  /** 0 = importo da scrivere. */
   cents: number;
   note: string;
   bucketId: string | null;
+  /** Verso e giorno già noti, es. da una notifica di accredito. */
+  income?: boolean;
+  date?: string;
 }
 
 interface Saved {
@@ -702,7 +803,7 @@ export class QuickAddLauncher {
     this.sheet
       .open<QuickAdd, { tx?: Transaction; draft?: Draft }, Saved>(QuickAdd, {
         data: { tx, draft },
-        autoFocus: tx || draft ? 'dialog' : 'input[name=amount]',
+        autoFocus: tx || draft?.cents ? 'dialog' : 'input[name=amount]',
       })
       .afterDismissed()
       .subscribe((saved) => {
@@ -812,6 +913,19 @@ export class QuickAddLauncher {
       return;
     }
     this.confirm('Eliminato', rows.flatMap(restoreOps));
+  }
+
+  /** Più movimenti sulla stessa riga (es. una trasferta): è un'eccezione, non insegna regole agli esercenti. */
+  assign(rows: Transaction[], lineId: string | null, lineName: string): boolean {
+    const op = (t: Transaction, patch = {}): PendingOp => ({ table: 'transactions', kind: 'upsert', row: { ...editable(t), ...patch } });
+    try {
+      this.sync.add(...rows.map((t) => op(t, { line_id: lineId })));
+    } catch (e) {
+      this.snackBar.open('Non assegnati: ' + (e instanceof Error ? e.message : String(e)), 'OK');
+      return false;
+    }
+    this.confirm(`${rows.length === 1 ? 'Un movimento' : rows.length + ' movimenti'} → ${lineName}`, rows.map((t) => op(t)));
+    return true;
   }
 
   /** "Salvato · Annulla": l'annullamento passa anch'esso dalla coda. */

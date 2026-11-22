@@ -34,16 +34,16 @@ type ReviewEvent = IngestEvent & { parse_rules: Pick<ParseRule, 'action' | 'amou
               <span class="warn">{{ e.error }}</span>
             }
             @if (e.parse_rules; as rule) {
-              @if (!rule.amount_regex && rule.action !== 'ignore') {
+              <!-- La regola dice già la riga: basta l'importo. Negli altri casi si passa dal movimento completo. -->
+              @if (!rule.amount_regex && rule.line_name && rule.action !== 'ignore') {
                 <div class="actions">
-                  <input #amount inputmode="decimal" autocomplete="off" placeholder="0,00" [attr.aria-label]="'Importo per ' + (rule.line_name ?? 'il movimento')" />
-                  <button mat-flat-button type="button" [disabled]="!online()" (click)="complete(e, amount.value)">
-                    {{ rule.line_name ? 'Aggiungi a ' + rule.line_name : 'Crea movimento' }}
-                  </button>
+                  <input #amount inputmode="decimal" autocomplete="off" placeholder="0,00" [attr.aria-label]="'Importo per ' + rule.line_name" />
+                  <button mat-flat-button type="button" [disabled]="!online()" (click)="complete(e, amount.value)">Aggiungi a {{ rule.line_name }}</button>
                 </div>
               }
             }
             <div class="actions">
+              <button mat-stroked-button type="button" [disabled]="!online()" (click)="create(e)">Crea movimento</button>
               <button mat-stroked-button type="button" [disabled]="!online()" (click)="retry(e)">Riprova</button>
               <button mat-button type="button" [disabled]="!online()" (click)="dismiss(e)">Elimina</button>
             </div>
@@ -218,6 +218,27 @@ export class Review {
       return;
     }
     this.done(await supabase.rpc('complete_event', { p_event_id: e.id, p_amount_cents: cents }), 'Non salvato');
+  }
+
+  /**
+   * Apre il movimento già compilato con il giorno della notifica (entrata, se la regola lo dice):
+   * lì si scrive l'importo e si sceglie la riga, o lo si divide. Salvato, la notifica gli resta collegata.
+   */
+  protected create(e: ReviewEvent): void {
+    const draft = {
+      cents: 0,
+      note: e.title?.trim() ?? '',
+      bucketId: null,
+      income: e.parse_rules?.action === 'income',
+      date: new Date(e.occurred_at).toLocaleDateString('sv-SE', { timeZone: 'Europe/Rome' }),
+    };
+    this.launcher.open(undefined, draft, async (id) => {
+      await this.sync.flush();
+      this.done(
+        await supabase.from('ingest_events').update({ transaction_id: id, status: 'created', error: null }).eq('id', e.id),
+        'Movimento salvato, ma la notifica resta in elenco',
+      );
+    });
   }
 
   protected async dismiss(e: IngestEvent): Promise<void> {

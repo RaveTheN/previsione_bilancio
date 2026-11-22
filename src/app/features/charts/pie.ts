@@ -1,12 +1,17 @@
 import { Component, computed, effect, ElementRef, inject, input, signal, viewChild } from '@angular/core';
 import { Chart } from 'chart.js';
 import { formatCents } from '../../core/money';
+import { LongPress } from '../../shared/long-press';
 import { darkSignal, themeColors } from './chart';
-import { formatPct, PieNode } from './chart-data';
+import { formatPct, PieNode, prune } from './chart-data';
 
-/** La torta delle uscite: toccando una fetta, o la sua riga, si apre nelle sue parti. L'elenco ha gli stessi numeri e si usa anche da tastiera. */
+/**
+ * La torta delle uscite: toccando una fetta, o la sua riga, si apre nelle sue parti; tenendola
+ * premuta (o con Canc sulla riga) si toglie. L'elenco ha gli stessi numeri e si usa anche da tastiera.
+ */
 @Component({
   selector: 'app-pie',
+  imports: [LongPress],
   template: `
     <figure>
       <figcaption>
@@ -23,14 +28,18 @@ import { formatPct, PieNode } from './chart-data';
           }
         }
       </nav>
+      @if (hidden().size) {
+        <button type="button" class="reset" (click)="hidden.set(empty)">Mostra tutte ({{ hidden().size }} {{ hidden().size === 1 ? 'nascosta' : 'nascoste' }})</button>
+      }
       @if (slices().length) {
-        <div class="plot">
+        <div class="plot" (appLongPress)="hideAt($event)">
           <canvas #canvas role="img" [attr.aria-label]="node().label + '. ' + summary()"></canvas>
         </div>
         <ul>
           @for (n of node().children; track n.key) {
             <li>
-              <button type="button" [disabled]="!n.children.length" (click)="open(n)">
+              <!-- aria-disabled e non disabled: una voce senza dettaglio deve comunque potersi togliere. -->
+              <button type="button" [attr.aria-disabled]="!n.children.length" (click)="open(n)" (appLongPress)="hide(n)" (keydown.delete)="hide(n)">
                 <i aria-hidden="true" [style.background]="n.cents > 0 ? color(n) : 'none'"></i>
                 <span class="name">{{ n.label }}</span>
                 <span class="num">{{ fmt(n.cents) }}</span>
@@ -111,11 +120,18 @@ import { formatPct, PieNode } from './chart-data';
       text-align: left;
       cursor: pointer;
     }
-    /* Una fetta senza dettaglio è solo un dato: resta leggibile come le altre (Safari attenua i pulsanti disattivati). */
-    li button:disabled {
-      -webkit-text-fill-color: currentColor;
-      opacity: 1;
+    li button[aria-disabled='true'] {
       cursor: default;
+    }
+    .reset {
+      justify-self: start;
+      min-height: 44px;
+      padding: 0;
+      border: 0;
+      background: none;
+      color: var(--mat-sys-primary);
+      font: var(--mat-sys-label-large);
+      cursor: pointer;
     }
     i {
       width: 12px;
@@ -146,9 +162,13 @@ export class PieView {
   protected readonly fmt = formatCents;
   /** Le chiavi delle fette aperte: se il periodo cambia e una non c'è più, ci si ferma al livello sopra. */
   protected readonly path = signal<string[]>([]);
+  /** Le fette tolte a mano, con il loro percorso: restano tolte anche cambiando periodo. */
+  protected readonly empty: ReadonlySet<string> = new Set();
+  protected readonly hidden = signal(this.empty);
+  private chart?: Chart<'pie', number[], string>;
 
   protected readonly trail = computed(() => {
-    const steps = [this.tree()];
+    const steps = [prune(this.tree(), this.hidden())];
     for (const key of this.path()) {
       const next = steps[steps.length - 1].children.find((n) => n.key === key);
       if (!next) break;
@@ -165,7 +185,7 @@ export class PieView {
     const slices = this.slices();
     if (!slices.length) return 'Nessuna uscita nel periodo.';
     const first = slices.reduce((a, b) => (b.cents > a.cents ? b : a));
-    const hint = slices.some((n) => n.children.length) ? ' Tocca una fetta per il dettaglio.' : '';
+    const hint = slices.some((n) => n.children.length) ? ' Tocca una fetta per il dettaglio, tienila premuta per toglierla.' : ' Tieni premuta una fetta per toglierla.';
     return `Totale ${formatCents(this.node().cents)}. Al primo posto ${first.label}, con il ${this.share(first)}.${hint}`;
   });
 
@@ -177,7 +197,7 @@ export class PieView {
       const dark = this.dark();
       if (!canvas) return;
       const c = themeColors(this.host.nativeElement, dark);
-      const chart = new Chart(canvas, {
+      const chart = (this.chart = new Chart(canvas, {
         type: 'pie',
         data: {
           labels: slices.map((n) => n.label),
@@ -197,19 +217,30 @@ export class PieView {
           },
           onClick: (_, elements) => {
             const n = slices[elements[0]?.index];
-            if (n?.children.length) this.open(n);
+            if (n) this.open(n);
           },
           onHover: (event, elements) => {
             (event.native?.target as HTMLElement).style.cursor = slices[elements[0]?.index]?.children.length ? 'pointer' : 'default';
           },
         },
-      });
+      }));
       onCleanup(() => chart.destroy());
     });
   }
 
   protected open(n: PieNode): void {
+    if (!n.children.length) return;
     this.path.set([...this.trail().slice(1).map((s) => s.key), n.key]);
+  }
+
+  protected hide(n: PieNode): void {
+    this.hidden.update((old) => new Set([...old, [...this.trail().slice(1).map((s) => s.key), n.key].join('>')]));
+  }
+
+  /** Pressione lunga sul disegno: la fetta sotto il dito. */
+  protected hideAt(e: Event): void {
+    const n = this.slices()[this.chart?.getElementsAtEventForMode(e, 'nearest', { intersect: true }, false)[0]?.index ?? -1];
+    if (n) this.hide(n);
   }
 
   protected color(n: PieNode): string {

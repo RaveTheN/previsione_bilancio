@@ -2,9 +2,19 @@ import { Component, computed, inject, OnInit, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MatSnackBar } from '@angular/material/snack-bar';
-import { Ledger } from '../../core/ledger';
+import { ActivatedRoute } from '@angular/router';
+import { Ledger, monthLabel } from '../../core/ledger';
+import { formatCents } from '../../core/money';
 import { onlineSignal } from '../../core/online';
 import { errorText, InboxName, Merchant, MerchantAlias, supabase } from '../../core/supabase';
+
+/** La spesa di un esercente dai suoi movimenti: totale e mese per mese dal più recente, con le uscite in positivo. */
+export function spendByMonth(rows: { month: string | null; amount_cents: number }[]): { total: number; months: { month: string; cents: number }[] } {
+  const sums = new Map<string, number>();
+  for (const r of rows) sums.set(r.month ?? '', (sums.get(r.month ?? '') ?? 0) - r.amount_cents);
+  const months = [...sums].map(([month, cents]) => ({ month, cents })).sort((a, b) => b.month.localeCompare(a.month));
+  return { total: months.reduce((s, m) => s + m.cents, 0), months };
+}
 
 /** Rubrica: nomi grezzi da collegare a un esercente, ed esercenti con la loro regola. Solo online. */
 @Component({
@@ -93,8 +103,8 @@ import { errorText, InboxName, Merchant, MerchantAlias, supabase } from '../../c
         <ul>
           @for (m of merchants(); track m.id) {
             <li class="card">
-              <!-- Chiuso si legge la regola; aperto si modifica. -->
-              <details>
+              <!-- Chiuso si legge la regola; aperto si modifica e si vede la spesa. Arrivando dai Grafici con un solo esercente, è già aperto. -->
+              <details [open]="!!query().trim() && merchants().length === 1" (toggle)="$any($event.target).open && loadSpend(m.id)">
                 <summary>
                   <span class="avatar" aria-hidden="true">{{ m.name.charAt(0).toUpperCase() }}</span>
                   <span class="who">
@@ -127,6 +137,20 @@ import { errorText, InboxName, Merchant, MerchantAlias, supabase } from '../../c
                         </span>
                       }
                     </div>
+                  }
+                  @if (spend().get(m.id); as s) {
+                    <div class="line">
+                      <span class="sub">Speso in tutto · {{ s.months.length }} {{ s.months.length === 1 ? 'mese' : 'mesi' }}</span>
+                      <strong>{{ fmt(s.total) }}</strong>
+                    </div>
+                    <ul class="months">
+                      @for (x of s.months; track x.month) {
+                        <li class="line">
+                          <span>{{ label(x.month) }}</span>
+                          <span>{{ fmt(x.cents) }}</span>
+                        </li>
+                      }
+                    </ul>
                   }
                   <div class="actions">
                     <button mat-button type="button" [attr.aria-label]="'Elimina ' + m.name" (click)="remove(m)">Elimina</button>
@@ -264,6 +288,16 @@ import { errorText, InboxName, Merchant, MerchantAlias, supabase } from '../../c
     .actions {
       justify-content: flex-end;
     }
+    .months {
+      gap: 0;
+      font: var(--mat-sys-body-medium);
+      font-variant-numeric: tabular-nums;
+    }
+    .months li {
+      display: flex;
+      padding: 4px 0;
+      border-top: 1px solid var(--mat-sys-outline-variant);
+    }
     .actions button {
       min-height: 44px;
     }
@@ -347,7 +381,12 @@ export class Rubrica implements OnInit {
   protected readonly lineNames = computed(() =>
     [...new Set([...this.ledger.lines().map((l) => l.name), ...this.ledger.merchants().flatMap((m) => m.default_line_name ?? [])])].sort(),
   );
-  protected readonly query = signal('');
+  /** Dai Grafici si arriva con il nome dell'esercente già cercato. */
+  protected readonly query = signal(inject(ActivatedRoute).snapshot.queryParamMap.get('cerca') ?? '');
+  protected readonly fmt = formatCents;
+  protected readonly label = monthLabel;
+  /** La spesa degli esercenti aperti, letta quando si apre la scheda. */
+  protected readonly spend = signal(new Map<string, ReturnType<typeof spendByMonth>>());
   /** Gli esercenti che contengono il testo cercato nel nome, nella riga o in un nome della banca collegato. */
   protected readonly merchants = computed(() => {
     const q = this.query().trim().toLowerCase();
@@ -371,6 +410,12 @@ export class Rubrica implements OnInit {
 
   protected day(date: string | null): string {
     return date ? new Date(date + 'T12:00:00').toLocaleDateString('it-IT', { day: 'numeric', month: 'short' }) : '';
+  }
+
+  protected async loadSpend(merchantId: string): Promise<void> {
+    // shortcut: al massimo 1000 movimenti per esercente (il limite dell'API); oltre, la somma va fatta nel database.
+    const res = await supabase.from('transactions').select('month, amount_cents').eq('merchant_id', merchantId).neq('status', 'declined');
+    if (res.data) this.spend.update((old) => new Map(old).set(merchantId, spendByMonth(res.data)));
   }
 
   protected rule(m: Merchant): string {
