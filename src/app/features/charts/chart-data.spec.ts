@@ -8,7 +8,7 @@ import {
   dailyChart,
   daySpending,
   lineChart,
-  lineNames,
+  lineGroups,
   marginChart,
   merchantChart,
   monthRow,
@@ -307,9 +307,18 @@ describe('righe scelte per un grafico', () => {
     expect(lineChart([m], 'expense').labels).not.toContain('Cinema');
   });
 
-  it('propone le righe dei secchi, oppure le entrate, in ordine alfabetico', () => {
-    expect(lineNames(months, 'expense')).toEqual(['Casa', 'Cinema', 'Spesa']);
-    expect(lineNames(months, 'income')).toEqual(['Stipendio']);
+  it('un secchio escluso porta via tutte le sue righe, anche quelle con la spunta', () => {
+    const [m] = withoutLines(months, new Set(['#fun']));
+    expect(m.lines.map((l) => l.name)).toEqual(['Stipendio', 'Casa']);
+    expect(m.buckets.map((b) => b.actual_pct)).toEqual([25, 0]);
+  });
+
+  it('propone le righe secchio per secchio, in ordine alfabetico, e in fondo le entrate', () => {
+    expect(lineGroups(months[0].lines, buckets)).toEqual([
+      { id: 'fm', title: 'Future me', names: ['Casa'] },
+      { id: 'fun', title: 'Fun', names: ['Cinema', 'Spesa'] },
+      { id: null, title: 'Entrate', names: ['Stipendio'] },
+    ]);
   });
 
   it('gli esercenti si sommano dalle uscite per riga; senza nome e rimborsi netti restano fuori', () => {
@@ -365,14 +374,14 @@ describe('uscite giorno per giorno', () => {
     expect(compareChart(rows, '2026-10-01', '2026-10-01', 31, buckets).series).toHaveLength(1);
   });
 
-  it('una colonna per giorno e la cumulata tratteggiata, che si ferma a oggi', () => {
+  it('una colonna per giorno con le sole uscite (il rimborso del 3 non la abbassa) e la cumulata tratteggiata, che si ferma a oggi', () => {
     const spec = dailyChart(rows, '2026-11-01', '2026-11-12');
     const [perDay, total] = spec.series;
     expect(spec.labels).toHaveLength(30);
-    expect(perDay.values.slice(0, 12)).toEqual([0, 0, 1500, 0, 0, 0, 0, 0, 0, 700, 0, 0]);
+    expect(perDay.values.slice(0, 12)).toEqual([0, 0, 2000, 0, 0, 0, 0, 0, 0, 700, 0, 0]);
     expect(perDay.values[12]).toBeNull();
     expect([total.line, total.dashed]).toEqual([true, true]);
-    expect([total.values[2], total.values[11], total.values[12]]).toEqual([1500, 2200, null]);
+    expect([total.values[2], total.values[11], total.values[12]]).toEqual([2000, 2700, null]);
     expect(spec.summary).toContain('Il giorno più caro: il 3');
   });
 

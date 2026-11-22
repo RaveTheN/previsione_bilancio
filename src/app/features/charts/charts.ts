@@ -16,7 +16,8 @@ import {
   daySpending,
   debtChart,
   lineChart,
-  lineNames,
+  isExcluded,
+  lineGroups,
   marginChart,
   merchantChart,
   periodOptions,
@@ -105,8 +106,8 @@ function readExcluded(): Record<string, string[]> {
           @if (c.key === 'esercenti') {
             <p class="note">Tocca un esercente per aprirlo in Rubrica, con la spesa mese per mese.</p>
           }
-          @if (c.lines; as names) {
-            <app-line-filter [names]="names" [excluded]="excluded()[c.key] ?? []" (excludedChange)="setExcluded(c.key, $event)" />
+          @if (c.lines; as groups) {
+            <app-line-filter [groups]="groups" [excluded]="excludedOf(c.key)" (excludedChange)="setExcluded(c.key, $event)" />
           }
         </app-chart>
       }
@@ -213,12 +214,13 @@ export class Charts {
     const data = this.data();
     if (!data) return [];
     const past = data.months.filter((m) => m.month <= this.current);
-    const out = (key: string) => new Set(this.excluded()[key] ?? []);
-    const expenses = lineNames(past, 'expense');
-    // Le righe dei mesi a confronto possono non essere nel periodo scelto.
-    const dayLines = [...new Set([...expenses, ...this.days().flatMap((r) => r.line ?? [])])].sort((a, b) => a.localeCompare(b, 'it'));
-    const days = (key: string) => this.days().filter((r) => !r.line || !out(key).has(r.line));
     const buckets = this.ledger.buckets();
+    const out = (key: string) => new Set(this.excludedOf(key));
+    const lines = past.flatMap((m) => m.lines);
+    const expenses = lineGroups(lines.filter((l) => l.bucket_id), buckets);
+    // Le righe dei mesi a confronto possono non essere nel periodo scelto.
+    const dayLines = lineGroups([...lines.filter((l) => l.bucket_id), ...this.days().flatMap((r) => (r.line ? { name: r.line, bucket_id: r.bucket_id } : []))], buckets);
+    const days = (key: string) => this.days().filter((r) => !isExcluded(out(key), r.line, r.bucket_id));
     return [
       {
         key: 'confronto',
@@ -233,12 +235,12 @@ export class Charts {
       { key: 'margine', heading: 'Margine del mese', spec: marginChart(data.months, this.current) },
       { key: 'rate', heading: 'Rate dei debiti', spec: debtChart(data.months) },
       { key: 'uscite', heading: 'Uscite: previsto ed effettivo', spec: lineChart(withoutLines(past, out('uscite')), 'expense'), lines: expenses },
-      { key: 'entrate', heading: 'Entrate: previsto ed effettivo', spec: lineChart(withoutLines(past, out('entrate')), 'income'), lines: lineNames(past, 'income') },
+      { key: 'entrate', heading: 'Entrate: previsto ed effettivo', spec: lineChart(withoutLines(past, out('entrate')), 'income'), lines: lineGroups(lines.filter((l) => !l.bucket_id), buckets) },
       { key: 'secchi', heading: 'Ripartizione nei secchi', spec: bucketChart(withoutLines(past, out('secchi')), buckets), lines: expenses },
       {
         key: 'esercenti',
         heading: 'Top esercenti',
-        spec: merchantChart(topMerchants(data.spending.filter((r) => !r.line || !out('esercenti').has(r.line)))),
+        spec: merchantChart(topMerchants(data.spending.filter((r) => !isExcluded(out('esercenti'), r.line, r.bucket_id)))),
         lines: expenses,
       },
     ];
@@ -266,6 +268,12 @@ export class Charts {
   protected shortcut(select: HTMLSelectElement): void {
     if (select.value) this.chosen.set(periodRange(select.value, this.current, null));
     select.value = '';
+  }
+
+  /** Righe e secchi tolti da un grafico. Nell'andamento giornaliero, finché non scegli tu, il secchio "Altro" è spento. */
+  protected excludedOf(key: string): string[] {
+    const altro = key === 'giornaliero' ? this.ledger.buckets().find((b) => b.name.toLowerCase() === 'altro') : undefined;
+    return this.excluded()[key] ?? (altro ? ['#' + altro.id] : []);
   }
 
   protected setExcluded(key: string, names: string[]): void {

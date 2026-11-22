@@ -323,14 +323,19 @@ export function prune(node: PieNode, hidden: ReadonlySet<string>, path = ''): Pi
   return { ...node, cents, children };
 }
 
+/** Una riga è fuori da un grafico se è esclusa lei, per nome, o tutto il suo secchio ("#id"). */
+export function isExcluded(excluded: ReadonlySet<string>, line: string | null, bucketId: string | null): boolean {
+  return (!!line && excluded.has(line)) || excluded.has('#' + bucketId);
+}
+
 /**
- * I mesi senza le righe escluse (per nome). Le percentuali dei secchi si ricalcolano sulle righe
+ * I mesi senza le righe escluse. Le percentuali dei secchi si ricalcolano sulle righe
  * rimaste, con la stessa base del database: tutte le entrate, effettive o, se mancano, previste.
  */
 export function withoutLines(months: ChartMonth[], excluded: ReadonlySet<string>): ChartMonth[] {
   if (!excluded.size) return months;
   return months.map((m) => {
-    const lines = m.lines.filter((l) => !excluded.has(l.name));
+    const lines = m.lines.filter((l) => !isExcluded(excluded, l.name, l.bucket_id));
     const base = m.income_actual || m.income_forecast;
     const spent = (id: string) => lines.filter((l) => l.bucket_id === id).reduce((s, l) => s + l.actual, 0);
     // || 0: senza spese il meno darebbe "-0".
@@ -338,10 +343,17 @@ export function withoutLines(months: ChartMonth[], excluded: ReadonlySet<string>
   });
 }
 
-/** I nomi delle righe del periodo, per il filtro di un grafico: entrate, o righe dei secchi. */
-export function lineNames(months: ChartMonth[], kind: 'income' | 'expense'): string[] {
-  const names = months.flatMap((m) => m.lines.filter((l) => (kind === 'income') === !l.bucket_id).map((l) => l.name));
-  return [...new Set(names)].sort((a, b) => a.localeCompare(b, 'it'));
+/** Le righe di un secchio nel filtro di un grafico; senza id sono le entrate, che non si escludono in blocco. */
+export interface LineGroup {
+  id: string | null;
+  title: string;
+  names: string[];
+}
+
+/** Le righe per il filtro di un grafico, secchio per secchio e in ordine alfabetico; in fondo le entrate. */
+export function lineGroups(lines: { name: string; bucket_id: string | null }[], buckets: Bucket[]): LineGroup[] {
+  const names = (id: string | null) => [...new Set(lines.filter((l) => l.bucket_id === id).map((l) => l.name))].sort((a, b) => a.localeCompare(b, 'it'));
+  return [...buckets.map((b): LineGroup => ({ id: b.id, title: b.name, names: names(b.id) })), { id: null, title: 'Entrate', names: names(null) }].filter((g) => g.names.length);
 }
 
 /** Un movimento letto per i grafici giornalieri, con la sua riga. */
@@ -400,10 +412,13 @@ export function compareChart(rows: DaySpend[], month: string, other: string, day
   };
 }
 
-/** Le uscite giorno per giorno, con la cumulata del mese: i giorni non ancora arrivati restano vuoti. */
+/**
+ * Quanto hai speso giorno per giorno, con la cumulata del mese: i giorni non ancora arrivati restano vuoti.
+ * Solo le uscite: un rimborso non abbassa la colonna del suo giorno, che così non va mai sotto zero.
+ */
 export function dailyChart(rows: DaySpend[], month: string, today: string): ChartSpec {
   const days = Number(lastDay(month).slice(8));
-  const perDay = Array.from({ length: days }, (_, i) => sumCents(rows.filter((r) => r.date === month.slice(0, 8) + String(i + 1).padStart(2, '0'))));
+  const perDay = Array.from({ length: days }, (_, i) => sumCents(rows.filter((r) => r.cents > 0 && r.date === month.slice(0, 8) + String(i + 1).padStart(2, '0'))));
   if (!perDay.some(Boolean)) return empty('Nessuna uscita nel mese.');
   const reached = Math.min(compareDay(month, today), month > today ? 0 : days);
   const total = sumCents(perDay.map((cents) => ({ cents })));
