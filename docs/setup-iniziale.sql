@@ -12,7 +12,7 @@ end $$;
 insert into public.buckets (user_id, name, sort_order, target_pct)
 select u.id, b.name, b.ord, b.pct
 from auth.users u,
-  (values ('Future me', 1, 15), ('Fundamentals', 2, 50), ('Fun', 3, 35)) as b (name, ord, pct)
+  (values ('Future me', 1, 15), ('Fundamentals', 2, 50), ('Fun', 3, 35), ('Altro', 4, 0)) as b (name, ord, pct)
 on conflict do nothing;
 
 insert into public.accounts (user_id, name, role, sort_order)
