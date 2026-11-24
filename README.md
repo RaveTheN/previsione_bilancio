@@ -67,6 +67,19 @@ python tools/import/import.py bbva estratto.xlsx --saldo 1234.56 --al 2026-10-12
 - Le causali elencate in `ARROTONDAMENTI` (in `tools/import/import.py`, da completare con il testo esatto dell'estratto) diventano arrotondamenti verso il Salvadanaio, sulla riga "Arrotonda acquisti" se c'è nel mese.
 - Un movimento che arriva dal Salvadanaio va sulla riga "Prelievo dal Salvadanaio" se c'è nel mese, altrimenti su "Risparmio".
 
+## Confronto con la banca
+
+Altro → **Confronto con la banca** legge da BBVA, tramite [Enable Banking](https://enablebanking.com), il saldo disponibile e i movimenti contabilizzati degli ultimi 14 giorni, e li confronta con l'app: saldo allineato o differenza, movimenti in banca che mancano nell'app, movimenti dell'app che la banca non ha. È in sola lettura: non scrive nulla da solo.
+
+Una volta sola:
+
+1. Su Enable Banking registra un'applicazione **Production**, con `https://localhost:8765/` tra i redirect consentiti, e attivala collegando il conto ("Activate by linking accounts"). Il file `.pem` che scarichi va in `~/.enablebanking/`, fuori dal progetto: è la chiave privata.
+2. `node tools/banca-consenso.mjs`, apri il link, autorizza; poi rilancia lo script con l'indirizzo su cui torni (la pagina non raggiungibile è prevista).
+3. `npx supabase db push`, poi nello SQL Editor di produzione esegui `~/.enablebanking/collega.sql`.
+4. `npx supabase secrets set --env-file "$env:USERPROFILE\.enablebanking\segreti.env"` e `npx supabase functions deploy banca`.
+
+Il consenso dura 180 giorni: la pagina mostra la scadenza. Per rinnovarlo ripeti il passo 2 ed esegui di nuovo `collega.sql`.
+
 ## Documentazione
 
 - [Backup e ripristino](docs/ripristino-backup.md)

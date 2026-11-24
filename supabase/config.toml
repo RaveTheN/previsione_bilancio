@@ -391,6 +391,10 @@ deno_version = 2
 # [edge_runtime.secrets]
 # secret_key = "env(SECRET_VALUE)"
 
+# Il token di chi chiama lo verifica PostgREST, quando la funzione legge bank_links con la RLS.
+[functions.banca]
+verify_jwt = false
+
 [analytics]
 enabled = false
 port = 54327

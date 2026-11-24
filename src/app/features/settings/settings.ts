@@ -39,6 +39,7 @@ async function clearDataCaches(): Promise<void> {
     </section>
 
     <nav class="links" aria-label="Altre pagine">
+      <a class="link" routerLink="/banca">Confronto con la banca</a>
       <a class="link" routerLink="/rubrica">Rubrica degli esercenti</a>
       <a class="link" routerLink="/debiti">Debiti e rate</a>
       <a class="link" routerLink="/desideri">Lista dei desideri</a>

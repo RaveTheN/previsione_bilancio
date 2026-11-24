@@ -21,6 +21,7 @@ export const routes: Routes = [
       { path: 'debiti', loadComponent: () => import('./features/debts/debts').then((m) => m.Debts) },
       { path: 'desideri', loadComponent: () => import('./features/wishlist/wishlist').then((m) => m.Wishlist) },
       { path: 'condivise', loadComponent: () => import('./features/shared-expenses/shared-expenses').then((m) => m.SharedExpenses) },
+      { path: 'banca', loadComponent: () => import('./features/bank/bank').then((m) => m.Bank) },
       { path: 'altro', loadComponent: () => import('./features/settings/settings').then((m) => m.Settings) },
       { path: '', pathMatch: 'full', redirectTo: 'mese' },
     ],
