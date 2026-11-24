@@ -41,6 +41,27 @@ describe('confronto con la banca', () => {
     expect(reconcile([bank('a', -1000, '2026-11-18')], rows, from, today)).toEqual({ missing: [], unknown: [], waiting: 0 });
   });
 
+  it('un accredito della banca inserito nell\'app come due movimenti è abbinato alla loro somma', () => {
+    const r = reconcile([bank('a', 8900, '2026-11-18')], [app('1', 5000, '2026-11-18'), app('2', 3900, '2026-11-19')], from, today);
+    expect(r).toEqual({ missing: [], unknown: [], waiting: 0 });
+  });
+
+  it('due arrotondamenti della banca inseriti nell\'app come uno solo sono abbinati alla loro somma', () => {
+    const r = reconcile([bank('a', -100, '2026-11-17'), bank('b', -162, '2026-11-18')], [app('1', -262, '2026-11-18')], from, today);
+    expect(r).toEqual({ missing: [], unknown: [], waiting: 0 });
+  });
+
+  it('somme che non tornano, o di segno opposto, restano in elenco', () => {
+    const r = reconcile(
+      [bank('a', -3250, '2026-11-18'), bank('b', 3705, '2026-11-18')],
+      [app('1', -955, '2026-11-18'), app('2', 705, '2026-11-18'), app('3', -2300, '2026-11-18')],
+      from,
+      today,
+    );
+    expect(r.missing.map((b) => b.ref).sort()).toEqual(['a', 'b']);
+    expect(r.unknown.map((t) => t.id).sort()).toEqual(['1', '2', '3']);
+  });
+
   it('PayPal: la notifica può precedere l\'addebito di parecchi giorni', () => {
     const r = reconcile([bank('a', -999, '2026-11-20', '2026-11-20', 'PAYPAL *NEGOZIO')], [app('1', -999, '2026-11-12')], from, today);
     expect(r.missing).toEqual([]);
