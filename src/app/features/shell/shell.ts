@@ -27,13 +27,7 @@ import { QuickAddLauncher } from '../quick-add/quick-add';
         </svg>
         <span>Anno</span>
       </a>
-      <!-- Su schermo stretto si raggiunge dalla pagina Mese: la barra in basso ha già cinque voci. -->
-      <a class="wide" routerLink="/grafici" routerLinkActive="active">
-        <svg viewBox="0 -960 960 960" aria-hidden="true">
-          <path d="M640-160v-280h160v280H640Zm-240 0v-640h160v640H400Zm-240 0v-440h160v440H160Z" />
-        </svg>
-        <span>Grafici</span>
-      </a>
+      <!-- Le etichette lunghe (Movimenti, Da rivedere) stanno in mezzo al loro gruppo: accanto al + verrebbero coperte. -->
       <a routerLink="/movimenti" routerLinkActive="active" (click)="today('/movimenti')">
         <svg viewBox="0 -960 960 960" aria-hidden="true">
           <path
@@ -42,9 +36,23 @@ import { QuickAddLauncher } from '../quick-add/quick-add';
         </svg>
         <span>Movimenti</span>
       </a>
+      <a routerLink="/grafici" routerLinkActive="active">
+        <svg viewBox="0 -960 960 960" aria-hidden="true">
+          <path d="M640-160v-280h160v280H640Zm-240 0v-640h160v640H400Zm-240 0v-440h160v440H160Z" />
+        </svg>
+        <span>Grafici</span>
+      </a>
       <button type="button" class="add" aria-label="Nuovo movimento" (click)="quickAdd.open()">
         <svg viewBox="0 -960 960 960" aria-hidden="true"><path d="M440-440H200v-80h240v-240h80v240h240v80H520v240h-80v-240Z" /></svg>
       </button>
+      <a routerLink="/banca" routerLinkActive="active">
+        <svg viewBox="0 -960 960 960" aria-hidden="true">
+          <path
+            d="M200-280v-280h80v280h-80Zm240 0v-280h80v280h-80ZM80-120v-80h800v80H80Zm600-160v-280h80v280h-80ZM80-640v-80l400-200 400 200v80H80Zm178-80h444L480-830 258-720Z"
+          />
+        </svg>
+        <span>Banca</span>
+      </a>
       <a routerLink="/da-rivedere" routerLinkActive="active">
         <svg viewBox="0 -960 960 960" aria-hidden="true">
           <path
@@ -100,26 +108,31 @@ import { QuickAddLauncher } from '../quick-add/quick-add';
       position: fixed;
       inset: auto 0 0;
       z-index: 10;
-      display: flex;
-      justify-content: space-around;
+      display: grid;
+      /* Tre voci per lato, larghe uguali: il + resta al centro. */
+      grid-template-columns: repeat(3, minmax(0, 1fr)) auto repeat(3, minmax(0, 1fr));
       align-items: center;
-      padding-bottom: env(safe-area-inset-bottom);
+      padding: 0 4px env(safe-area-inset-bottom);
       background: var(--mat-sys-surface-container);
     }
     a,
     button {
       position: relative;
       display: grid;
+      /* Un'etichetta più larga della colonna sporge da entrambi i lati: l'icona resta centrata. */
+      justify-content: center;
       justify-items: center;
       gap: 2px;
-      /* 64 px con il padding: di più e le cinque voci non entrano negli iPhone da 390 px. */
-      min-width: 40px;
+      /* Sei voci più il + su 375 px: niente padding ai lati, la larghezza la dà la colonna. */
+      min-width: 0;
       min-height: 56px;
-      padding: 6px 12px;
+      padding: 6px 0;
+      white-space: nowrap;
       border: 0;
       background: none;
       color: var(--mat-sys-on-surface-variant);
-      font: var(--mat-sys-label-medium);
+      /* Carattere piccolo nella barra in basso: con il medio "Movimenti" e "Grafici" si toccano. */
+      font: var(--mat-sys-label-small);
       text-decoration: none;
       cursor: pointer;
     }
@@ -191,10 +204,17 @@ import { QuickAddLauncher } from '../quick-add/quick-add';
         position: sticky;
         top: 0;
         height: 100dvh;
+        display: flex;
         flex-direction: column;
         justify-content: flex-start;
         gap: 8px;
         padding: 16px 0;
+      }
+      a,
+      button {
+        min-width: 40px;
+        padding: 6px 12px;
+        font: var(--mat-sys-label-medium);
       }
     }
   `,
