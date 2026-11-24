@@ -1,4 +1,4 @@
-import { deviation, diffTone, formatCents, parseAmount, parseSignedAmount } from './money';
+import { deviation, diffTone, formatCents, parseAmount, parseExpression, parseSignedAmount } from './money';
 
 describe('parseAmount', () => {
   it.each([
@@ -33,6 +33,28 @@ describe('parseSignedAmount', () => {
 
   it.each(['', '-', 'abc', '--5'])('"%s" non è valido', (text) => {
     expect(parseSignedAmount(text)).toBeNull();
+  });
+});
+
+describe('parseExpression', () => {
+  it.each([
+    ['1000 - 55', 94500],
+    ['1000,00-55', 94500],
+    ['1.000,50 + 0,50', 100100],
+    ['12,50*4', 5000],
+    ['100/3', 3333],
+    ['10 + 2*3', 1600],
+    ['-5*2', -1000],
+    ['55 - 55', 0],
+    ['-12,50', -1250],
+    ['+50', 5000],
+    ['0', 0],
+  ])('"%s" → %i centesimi', (text, cents) => {
+    expect(parseExpression(text)).toBe(cents);
+  });
+
+  it.each(['', '-', 'abc', '--5', '1000 -', '5/0', '*5', '5 5 x'])('"%s" non è valido', (text) => {
+    expect(parseExpression(text)).toBeNull();
   });
 });
 

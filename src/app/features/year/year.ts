@@ -144,11 +144,11 @@ function readDensity(): Density {
             <dd>
               @if (s.row.editable) {
                 <input
-                  inputmode="decimal"
                   autocomplete="off"
                   aria-label="Previsto"
                   [disabled]="!online()"
                   [value]="input(s.cell, s.row.kind)"
+                  (focus)="$any($event.target).select()"
                   (keydown.enter)="blur($event)"
                   (change)="setForecast(s.row, s.month, $event)"
                 />
@@ -202,11 +202,11 @@ function readDensity(): Density {
             @if (row.editable) {
               <input
                 class="cell-input"
-                inputmode="decimal"
                 autocomplete="off"
                 [attr.aria-label]="'Previsto ' + row.label + ', ' + label(months()[i])"
                 [disabled]="!online()"
                 [value]="input(c, kind)"
+                (focus)="$any($event.target).select()"
                 (keydown.enter)="blur($event)"
                 (change)="setForecast(row, i, $event)"
               />
@@ -686,11 +686,14 @@ export class Year {
   }
 
   protected async setForecast(row: GridRow, month: number, e: Event): Promise<void> {
-    const amount = inputToForecast((e.target as HTMLInputElement).value, row.kind);
+    const input = e.target as HTMLInputElement;
+    const amount = inputToForecast(input.value, row.kind);
     if (amount === undefined) {
       this.snackBar.open('Importo non valido', 'OK', { duration: 4000 });
       return;
     }
+    // Un'operazione scritta nel campo lascia il posto al suo risultato, anche se il previsto non cambia.
+    if (amount !== null) input.value = signedText(amount, row.kind);
     this.done(await writeByName(this.months()[month], row.label, row.bucketId, amount, row.kind === 'saving'), 'Previsione non salvata');
   }
 

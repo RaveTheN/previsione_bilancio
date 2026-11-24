@@ -32,6 +32,34 @@ export function parseSignedAmount(text: string): number | null {
   return cents === null ? null : negative && cents ? -cents : cents;
 }
 
+/**
+ * Operazioni tra importi → centesimi: "1000 - 55" → 94500. Prima * e /, poi + e -; un segno
+ * iniziale vale per il primo importo. null se non valido. Un importo solo vale come parseSignedAmount.
+ */
+export function parseExpression(text: string): number | null {
+  // Posti pari gli importi, posti dispari gli operatori.
+  const tokens = text.replace(/[\s€]/g, '').split(/([-+*/])/);
+  // Segno iniziale: "-5 + 2" si legge "0 - 5 + 2".
+  if (tokens[0] === '' && /^[-+]$/.test(tokens[1] ?? '')) tokens[0] = '0';
+  let [sum, term, sign] = [0, 0, 1];
+  for (let i = 0; i < tokens.length; i += 2) {
+    const value = parseSignedAmount(tokens[i]);
+    if (value === null) return null;
+    const op = tokens[i - 1];
+    if (op === '*') term = (term * value) / 100;
+    else if (op === '/') {
+      if (!value) return null;
+      term = (term * 100) / value;
+    } else {
+      sum += sign * term;
+      sign = op === '-' ? -1 : 1;
+      term = value;
+    }
+  }
+  // "|| 0": mai il meno di zero.
+  return Math.round(sum + sign * term) || 0;
+}
+
 /** Centesimi → testo per un campo modificabile: -1250 → "-12,50". */
 export function centsToInput(cents: number): string {
   return (cents / 100).toFixed(2).replace('.', ',');

@@ -55,6 +55,11 @@ describe('previsione nei campi', () => {
     ['1800', 'income', 180000],
     ['-50', 'income', -5000],
     ['0', 'expense', 0],
+    ['1000 - 55', 'expense', -94500],
+    ['1000,00 - 55', 'income', 94500],
+    ['-1000 - 55', 'expense', -105500],
+    ['50 - 50', 'expense', 0],
+    ['1000 -', 'expense', undefined],
     ['', 'expense', null],
     ['abc', 'expense', undefined],
   ])('"%s" (%s) → %s', (text, kind, cents) => {

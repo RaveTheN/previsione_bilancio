@@ -1,4 +1,5 @@
-import { Component, computed, inject, signal } from '@angular/core';
+import { NgTemplateOutlet } from '@angular/common';
+import { Component, computed, ElementRef, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
@@ -6,7 +7,7 @@ import { MatMenuModule } from '@angular/material/menu';
 import { CdkDrag, CdkDragDrop, CdkDragHandle, CdkDropList, CdkDropListGroup } from '@angular/cdk/drag-drop';
 import { MatSnackBar } from '@angular/material/snack-bar';
 import { currentMonth, Ledger, monthLabel, shiftMonth } from '../../core/ledger';
-import { addLine, copyForecast, deleteLine, inputToForecast, lineKind, moveLine, repeatLine, repeatMonths, REPEATS, RESERVE_LINES, ReserveLineType, signedText, updateLine, writeByName } from '../../core/budget';
+import { addLine, copyForecast, deleteLine, inputToForecast, lineKind, moveLine, removeLine, repeatLine, repeatMonths, REPEATS, RESERVE_LINES, ReserveLineType, signedText, updateLine, writeByName } from '../../core/budget';
 import { diffTone, formatCents } from '../../core/money';
 import { onlineSignal } from '../../core/online';
 import { errorText, MonthLine, MonthOverview, supabase, Transaction } from '../../core/supabase';
@@ -42,7 +43,7 @@ const percent = new Intl.NumberFormat('it-IT', { style: 'percent', maximumFracti
 
 @Component({
   selector: 'app-month',
-  imports: [CdkDrag, CdkDragHandle, CdkDropList, CdkDropListGroup, FormsModule, MatButtonModule, MatMenuModule, MonthHeader, RouterLink],
+  imports: [CdkDrag, CdkDragHandle, CdkDropList, CdkDropListGroup, FormsModule, MatButtonModule, MatMenuModule, MonthHeader, NgTemplateOutlet, RouterLink],
   hostDirectives: [SwipeMonth],
   template: `
     <app-month-header />
@@ -170,7 +171,19 @@ const percent = new Intl.NumberFormat('it-IT', { style: 'percent', maximumFracti
                 >
                   <tr class="group">
                     <th scope="rowgroup">
-                      {{ g.title }}
+                      <span class="group-title">
+                        {{ g.title }}
+                        <!-- La riga nuova si scrive qui sotto, già nel suo secchio: niente corsa in fondo alla lista. -->
+                        <button
+                          type="button"
+                          class="add"
+                          [attr.aria-label]="'Aggiungi una riga in ' + g.title"
+                          [attr.aria-expanded]="adding() === g.title"
+                          (click)="startAdd(g)"
+                        >
+                          {{ adding() === g.title ? '×' : '+' }}
+                        </button>
+                      </span>
                       @if (g.stat) {
                         <button type="button" class="sub target" (click)="setTarget(g)">
                           obiettivo {{ pct(g.stat.target_pct) }} <span aria-hidden="true">▾</span>
@@ -199,6 +212,13 @@ const percent = new Intl.NumberFormat('it-IT', { style: 'percent', maximumFracti
                       </td>
                     }
                   </tr>
+                  @if (adding() === g.title) {
+                    <tr class="detail">
+                      <td class="tool" [attr.colspan]="future() ? 2 : 3">
+                        <ng-container [ngTemplateOutlet]="addForm" />
+                      </td>
+                    </tr>
+                  }
                   @for (r of g.rows; track r.id) {
                     <tr cdkDrag cdkDragLockAxis="y" [cdkDragData]="r" [cdkDragDisabled]="!g.bucketId || !online()">
                       <th scope="row">
@@ -215,12 +235,13 @@ const percent = new Intl.NumberFormat('it-IT', { style: 'percent', maximumFracti
                         </div>
                       </th>
                       <td>
+                        <!-- Tastiera completa anche sul telefono: nel campo si scrivono operazioni (1000 - 55). -->
                         <input
-                          inputmode="decimal"
                           autocomplete="off"
                           [attr.aria-label]="'Previsione ' + r.name + ' · ' + g.title"
                           [value]="forecastText(r)"
                           placeholder="—"
+                          (focus)="$any($event.target).select()"
                           (change)="setForecast(r, $event)"
                         />
                       </td>
@@ -229,7 +250,7 @@ const percent = new Intl.NumberFormat('it-IT', { style: 'percent', maximumFracti
                         <td [class]="tone(r)">{{ fmt(r.actual) }}{{ arrow(r) }}</td>
                       }
                     </tr>
-                    <!-- Solo su richiesta, dal menu della riga: i suoi movimenti, o la copia in un altro mese. -->
+                    <!-- Solo su richiesta, dal menu della riga: i suoi movimenti, o la copia in altri mesi. -->
                     @if (detail()?.id === r.id) {
                       <tr class="detail">
                         <td [attr.colspan]="future() ? 2 : 3">
@@ -245,6 +266,21 @@ const percent = new Intl.NumberFormat('it-IT', { style: 'percent', maximumFracti
                                 </select>
                               </label>
                               <button mat-button type="button" (click)="detail.set(null)">Chiudi</button>
+                              <button mat-stroked-button type="submit" [disabled]="!copyTo">Copia</button>
+                            </form>
+                          } @else if (detail()?.mode === 'next') {
+                            <form class="copy-row" (ngSubmit)="rowNext(r, false)">
+                              <label>
+                                {{ r.name }} nei mesi successivi, fino a
+                                <select name="nextUntil" [(ngModel)]="copyTo">
+                                  <option value="">Scegli il mese</option>
+                                  @for (m of nextMonths(); track m) {
+                                    <option [value]="m">{{ label(m) }}</option>
+                                  }
+                                </select>
+                              </label>
+                              <button mat-button type="button" (click)="detail.set(null)">Chiudi</button>
+                              <button mat-stroked-button type="button" [disabled]="!copyTo" (click)="rowNext(r, true)">Togli</button>
                               <button mat-stroked-button type="submit" [disabled]="!copyTo">Copia</button>
                             </form>
                           } @else {
@@ -275,6 +311,7 @@ const percent = new Intl.NumberFormat('it-IT', { style: 'percent', maximumFracti
             <ng-template matMenuContent let-r="r">
               <button mat-menu-item type="button" (click)="detail.set({ id: r.id, mode: 'moves' })">Vedi i movimenti ({{ r.n }})</button>
               <button mat-menu-item type="button" (click)="copyTo = ''; detail.set({ id: r.id, mode: 'copy' })">Copia in un altro mese</button>
+              <button mat-menu-item type="button" (click)="copyTo = ''; detail.set({ id: r.id, mode: 'next' })">Copia o togli nei mesi successivi</button>
               <button mat-menu-item type="button" (click)="renameRow(r)">Rinomina</button>
               @if (r.kind !== 'income') {
                 @for (b of ledger.buckets(); track b.id) {
@@ -290,8 +327,14 @@ const percent = new Intl.NumberFormat('it-IT', { style: 'percent', maximumFracti
           <p class="note">Nessuna riga in questo mese: scrivi la lista qui sotto, come nel foglio.</p>
         }
 
-        <details class="tool">
-          <summary>Aggiungi una riga</summary>
+        <!-- In fondo solo se non è già aperto in un secchio: serve nei mesi senza righe e per le Entrate vuote. -->
+        @if (!adding()) {
+          <details class="tool">
+            <summary>Aggiungi una riga</summary>
+            <ng-container [ngTemplateOutlet]="addForm" />
+          </details>
+        }
+        <ng-template #addForm>
           <form (ngSubmit)="addRow()">
             <select name="type" aria-label="Tipo di riga" [ngModel]="newType" (ngModelChange)="pickType($event)">
               <option value="">Riga normale</option>
@@ -314,7 +357,7 @@ const percent = new Intl.NumberFormat('it-IT', { style: 'percent', maximumFracti
                 }
               </select>
             }
-            <input name="amount" inputmode="decimal" autocomplete="off" placeholder="0,00" aria-label="Importo" [(ngModel)]="newAmount" />
+            <input name="amount" autocomplete="off" placeholder="0,00" aria-label="Importo" [(ngModel)]="newAmount" />
             @if (newType) {
               <p class="note">{{ reserveLines[newType].note }}</p>
             } @else if (newBucket !== 'entrate') {
@@ -335,7 +378,7 @@ const percent = new Intl.NumberFormat('it-IT', { style: 'percent', maximumFracti
             }
             <button mat-stroked-button type="submit">Aggiungi</button>
           </form>
-        </details>
+        </ng-template>
 
         <details class="tool">
           <summary>Copia nei mesi successivi</summary>
@@ -534,7 +577,24 @@ const percent = new Intl.NumberFormat('it-IT', { style: 'percent', maximumFracti
       text-align: left;
       cursor: pointer;
     }
-    .grid input {
+    .group-title {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .grid .add {
+      flex: none;
+      width: 40px;
+      height: 40px;
+      border: 1px solid var(--mat-sys-outline-variant);
+      border-radius: 20px;
+      background: none;
+      color: var(--mat-sys-primary);
+      font: var(--mat-sys-title-medium);
+      cursor: pointer;
+    }
+    /* Solo il campo della previsione, figlio diretto della cella: non i campi del modulo aperto in un secchio. */
+    .grid td > input {
       box-sizing: border-box;
       width: 100%;
       min-height: 40px;
@@ -543,10 +603,10 @@ const percent = new Intl.NumberFormat('it-IT', { style: 'percent', maximumFracti
       font: var(--mat-sys-body-medium);
       text-align: right;
     }
-    .grid input:focus {
+    .grid td > input:focus {
       border-color: var(--mat-sys-primary);
     }
-    .grid input::placeholder {
+    .grid td > input::placeholder {
       color: var(--mat-sys-on-surface-variant);
       font-style: italic;
     }
@@ -669,6 +729,8 @@ const percent = new Intl.NumberFormat('it-IT', { style: 'percent', maximumFracti
       display: grid;
       gap: 8px;
       padding-bottom: 12px;
+      text-align: left;
+      white-space: normal;
     }
     .tool label {
       display: grid;
@@ -720,9 +782,12 @@ export class Month {
   protected readonly repeats = REPEATS;
   /** Ogni quanti mesi si ripete la riga nuova; 0 = non si ripete. */
   protected repeat = 0;
-  /** Riga aperta sotto il suo nome: i movimenti, o la copia in un altro mese. */
-  protected readonly detail = signal<{ id: string; mode: 'moves' | 'copy' } | null>(null);
+  /** Riga aperta sotto il suo nome: i movimenti, la copia in un altro mese, o copia e rimozione nei mesi successivi. */
+  protected readonly detail = signal<{ id: string; mode: 'moves' | 'copy' | 'next' } | null>(null);
   protected copyTo = '';
+  /** Titolo del secchio in cui è aperto il modulo della riga nuova. */
+  protected readonly adding = signal<string | null>(null);
+  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
 
   /** Maniglia: sei puntini, due colonne per tre righe. */
   protected readonly dragIcon = [360, 600].flatMap((x) => [-720, -480, -240].map((y) => `M${x - 70} ${y}a70 70 0 1 0 140 0a70 70 0 1 0 -140 0Z`)).join('');
@@ -795,6 +860,35 @@ export class Month {
     }
   }
 
+  /** Una riga sola nei mesi dopo questo, fino a quello scelto: la copia (come "Copia nei mesi successivi") o la toglie. */
+  protected async rowNext(r: Row, remove: boolean): Promise<void> {
+    const [from, until] = [this.ledger.month(), this.copyTo];
+    if (!until) return;
+    this.busy.set(true);
+    try {
+      const res = remove
+        ? await removeLine(from, until, r.name)
+        : await copyForecast(from, until, [{ name: r.name, bucket_id: r.bucket_id, forecast: r.forecast, sort_order: r.sort_order, over_is_good: r.over_is_good }]);
+      if (res !== 'cancelled' && this.done(res, remove ? 'Riga non tolta' : 'Riga non copiata')) {
+        this.detail.set(null);
+        this.snackBar.open(`${r.name} ${remove ? 'tolta' : 'copiata'} fino a ${monthLabel(until)}`, 'OK', { duration: 4000 });
+      }
+    } finally {
+      this.busy.set(false);
+    }
+  }
+
+  /** Il "+" del secchio: apre (o richiude) lì sotto il modulo della riga nuova, con il secchio già scelto. */
+  protected startAdd(g: Group): void {
+    const open = this.adding() !== g.title;
+    this.adding.set(open ? g.title : null);
+    if (!open) return;
+    this.pickType('');
+    this.newBucket = g.bucketId ?? 'entrate';
+    // Il modulo compare al prossimo giro: allora il cursore va sul nome.
+    setTimeout(() => this.host.nativeElement.querySelector<HTMLInputElement>('tr.detail input[name=name]')?.focus());
+  }
+
   protected fmtN(cents: number | null | undefined): string {
     return cents == null ? '—' : formatCents(cents);
   }
@@ -824,6 +918,8 @@ export class Month {
       input.value = this.forecastText(r);
       return;
     }
+    // Un'operazione scritta nel campo lascia il posto al suo risultato, anche se il previsto non cambia.
+    if (amount !== null) input.value = signedText(amount, r.kind);
     this.done(await updateLine(r.id, { amount_cents: amount ?? 0 }), 'Previsione non salvata');
   }
 
@@ -864,6 +960,7 @@ export class Month {
       this.newOverGood = false;
       this.repeat = 0;
       this.pickType('');
+      this.adding.set(null);
     }
   }
 

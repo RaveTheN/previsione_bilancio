@@ -1,5 +1,5 @@
 import { monthLabel, shiftMonth } from './ledger';
-import { centsToInput, parseSignedAmount } from './money';
+import { centsToInput, parseExpression } from './money';
 import { MonthLine, supabase } from './supabase';
 
 type Result = { error: { message: string } | null; status: number };
@@ -45,12 +45,13 @@ export function signedText(cents: number, kind: string): string {
 /**
  * Testo del campo → previsione; null = campo vuoto; undefined = non valido.
  * Senza segno vale il verso della riga (uscite negative); con "-" o "+" vale quello scritto.
+ * Si possono scrivere operazioni: "1000 - 55" su una spesa è una spesa di 945.
  */
 export function inputToForecast(text: string, kind: string): number | null | undefined {
   const t = text.trim();
   if (!t) return null;
   const explicit = /^[+-]/.test(t);
-  const cents = parseSignedAmount(t.replace(/^\+/, ''));
+  const cents = parseExpression(t);
   if (cents === null) return undefined;
   return explicit ? cents : cents * kindSign(kind) || 0;
 }
@@ -106,6 +107,27 @@ export async function repeatLine(from: string, step: number, line: ForecastLine)
   }
   const rows = months.map((month) => ({ month, name: line.name, bucket_id: line.bucket_id, amount_cents: line.forecast, sort_order: line.sort_order, over_is_good: line.over_is_good }));
   return await supabase.from('budget_lines').upsert(rows, { onConflict: 'user_id,month,name' });
+}
+
+/**
+ * Toglie la riga con quel nome dai mesi dopo `from`, fino a `until` compreso; i suoi movimenti
+ * tornano da assegnare, e lo chiede prima. Apre i mesi fino a quello dopo `until` (come repeatLine):
+ * aperto dopo, un mese ricopierebbe il precedente, rimettendo la riga o perdendola anche oltre `until`.
+ */
+export async function removeLine(from: string, until: string, name: string): Promise<Result | 'cancelled'> {
+  const existing = await supabase.from('budget_lines').select('id').eq('name', name).gt('month', from).lte('month', until);
+  if (existing.error) return existing;
+  const ids = existing.data.map((l) => l.id);
+  const moves = ids.length ? await supabase.from('transactions').select('id', { count: 'exact', head: true }).in('line_id', ids) : null;
+  if (moves?.error) return moves;
+  const n = moves?.count ?? 0;
+  const back = n ? ` ${n === 1 ? 'Un movimento torna' : `${n} movimenti tornano`} da assegnare.` : '';
+  if (!confirm(`Togliere la riga ${name} da ${monthLabel(shiftMonth(from, 1))} fino a ${monthLabel(until)}?${back}`)) return 'cancelled';
+  for (let m = shiftMonth(from, 1); m <= shiftMonth(until, 1); m = shiftMonth(m, 1)) {
+    const ensured = await supabase.rpc('ensure_month_lines', { p_month: m });
+    if (ensured.error) return ensured;
+  }
+  return await supabase.from('budget_lines').delete().eq('name', name).gt('month', from).lte('month', until);
 }
 
 export interface ForecastLine {
