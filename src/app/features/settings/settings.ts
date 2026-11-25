@@ -9,6 +9,7 @@ import { centsToInput, formatCents, parseSignedAmount } from '../../core/money';
 import { onlineSignal } from '../../core/online';
 import { Account, errorText, supabase } from '../../core/supabase';
 import { Sync } from '../../core/sync';
+import { applyTheme, currentTheme, Theme } from '../../core/theme';
 import { Devices } from './devices';
 import { Exports } from './exports';
 
@@ -117,6 +118,19 @@ async function clearDataCaches(): Promise<void> {
     <app-devices />
     </fieldset>
 
+    <section>
+      <h2>Aspetto</h2>
+      <div class="account">
+        <label>
+          Tema (vale per questo dispositivo)
+          <select (change)="setTheme(value($event))">
+            <option value="classico" [selected]="theme === 'classico'">Classico (blu)</option>
+            <option value="maialino" [selected]="theme === 'maialino'">Maialino (giallo)</option>
+          </select>
+        </label>
+      </div>
+    </section>
+
     <app-exports />
 
     <section>
@@ -216,6 +230,12 @@ export class Settings {
   }
 
   protected newAccount = '';
+
+  protected theme = currentTheme();
+
+  protected setTheme(theme: string): void {
+    applyTheme((this.theme = theme as Theme));
+  }
 
   /** Le impostazioni si salvano solo online: la coda offline copre i movimenti. */
   protected readonly online = onlineSignal();

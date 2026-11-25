@@ -11,7 +11,7 @@ html {
   @include mat.theme(
     (
       color: (
-        primary: theme.$primary-palette,
+        primary: mat.$blue-palette,
         tertiary: mat.$orange-palette,
       ),
       typography: (
@@ -19,6 +19,18 @@ html {
         brand-family: $system-font,
       ),
       density: 0,
+    )
+  );
+}
+
+// Tema "Maialino", scelto in Altro: vedi core/theme.ts.
+html.tema-maialino {
+  @include mat.theme(
+    (
+      color: (
+        primary: theme.$primary-palette,
+        tertiary: mat.$orange-palette,
+      ),
     )
   );
 }
