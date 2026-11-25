@@ -1,4 +1,6 @@
 @use '@angular/material' as mat;
+// Palette ricavata dal giallo dell'icona (#ffd425).
+@use './theme-colors' as theme;
 
 $system-font: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
 
@@ -9,7 +11,7 @@ html {
   @include mat.theme(
     (
       color: (
-        primary: mat.$blue-palette,
+        primary: theme.$primary-palette,
         tertiary: mat.$orange-palette,
       ),
       typography: (
